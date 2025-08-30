@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Exports schema (draft)",
+  "type": "object",
+  "properties": {
+    ".": {
+      "type": "object",
+      "properties": {
+        "types": {
+          "const": "./dist/index.d.ts"
+        },
+        "import": {
+          "const": "./dist/index.js"
+        }
+      },
+      "required": [
+        "types",
+        "import"
+      ],
+      "additionalProperties": false
+    },
+    "./persist": {
+      "type": "object",
+      "properties": {
+        "types": {
+          "const": "./dist/modules/persist/index.d.ts"
+        },
+        "import": {
+          "const": "./dist/modules/persist/index.js"
+        }
+      },
+      "required": [
+        "types",
+        "import"
+      ],
+      "additionalProperties": false
+    },
+    "./router": {
+      "type": "object",
+      "properties": {
+        "types": {
+          "const": "./dist/modules/router/index.d.ts"
+        },
+        "import": {
+          "const": "./dist/modules/router/index.js"
+        }
+      },
+      "required": [
+        "types",
+        "import"
+      ],
+      "additionalProperties": false
+    },
+    "./url": {
+      "type": "object",
+      "properties": {
+        "types": {
+          "const": "./dist/modules/url/index.d.ts"
+        },
+        "import": {
+          "const": "./dist/modules/url/index.js"
+        }
+      },
+      "required": [
+        "types",
+        "import"
+      ],
+      "additionalProperties": false
+    },
+    "./utils": {
+      "type": "object",
+      "properties": {
+        "types": {
+          "const": "./dist/modules/utils/index.d.ts"
+        },
+        "import": {
+          "const": "./dist/modules/utils/index.js"
+        }
+      },
+      "required": [
+        "types",
+        "import"
+      ],
+      "additionalProperties": false
+    },
+    "./lit": {
+      "type": "object",
+      "properties": {
+        "types": {
+          "const": "./dist/modules/lit/index.d.ts"
+        },
+        "import": {
+          "const": "./dist/modules/lit/index.js"
+        }
+      },
+      "required": [
+        "types",
+        "import"
+      ],
+      "additionalProperties": false
+    },
+    "./machine": {
+      "type": "object",
+      "properties": {
+        "types": {
+          "const": "./dist/modules/machine/index.d.ts"
+        },
+        "import": {
+          "const": "./dist/modules/machine/index.js"
+        }
+      },
+      "required": [
+        "types",
+        "import"
+      ],
+      "additionalProperties": false
+    },
+    "./i18n": {
+      "type": "object",
+      "properties": {
+        "types": {
+          "const": "./dist/modules/i18n/index.d.ts"
+        },
+        "import": {
+          "const": "./dist/modules/i18n/index.js"
+        }
+      },
+      "required": [
+        "types",
+        "import"
+      ],
+      "additionalProperties": false
+    },
+    "./query": {
+      "type": "object",
+      "properties": {
+        "types": {
+          "const": "./dist/modules/query/index.d.ts"
+        },
+        "import": {
+          "const": "./dist/modules/query/index.js"
+        }
+      },
+      "required": [
+        "types",
+        "import"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,7 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+- ты находишься в Windows среде
+- все тесты пишем на WTR

@@ -1,0 +1,104 @@
+{
+  "name": "unisignal",
+  "private": true,
+  "description": "Tiny and effective state manager",
+  "keywords": [
+    "state",
+    "store",
+    "state-manager",
+    "state manager",
+    "reactive",
+    "reactivity",
+    "flux",
+    "@statx",
+    "statx"
+  ],
+  "bugs": {
+    "url": "https://github.com/kaifaty/statx/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/kaifaty/statx.git"
+  },
+  "license": "MIT",
+  "author": "kaifaty",
+  "scripts": {
+    "prettify": "prettier --write **/*.json",
+    "build": "tsup",
+    "build:pkg": "tsup",
+    "lint": "eslint \"**/*.{ts,tsx}\"",
+    "pretest": "tsx tools/docs/extract-snippets.ts",
+    "test": "npm run test:wtr",
+    "test:wtr": "web-test-runner --config web-test-runner.config.mjs --node-resolve",
+    "fix": "eslint --fix \"**/*.{ts,tsx}\"",
+    "docs:api": "typedoc",
+    "docs:links": "remark . --quiet --frail",
+    "i18n:verify": "tsx tools/i18n/verify.ts",
+    "release:version": "changeset version",
+    "release:publish": "npm run build && changeset publish --tag latest --access public",
+    "release:pre:enter": "changeset pre enter next",
+    "release:pre:exit": "changeset pre exit",
+    "release:next": "npm run release:pre:enter && npm run release:version && npm run release:publish && npm run release:pre:exit",
+    "release:canary": "changeset version --snapshot canary && npm run build && changeset publish --tag canary --no-git-tag"
+  },
+  "devDependencies": {
+    "@alenaksu/json-viewer": "^2.0.1",
+    "@changesets/changelog-github": "^0.4.8",
+    "@changesets/cli": "^2.27.7",
+    "@esm-bundle/chai": "^4.3.4-fix.0",
+    "@parcel/packager-ts": "^2.11.0",
+    "@parcel/transformer-typescript-types": "^2.11.0",
+    "@types/mocha": "^10.0.6",
+    "@typescript-eslint/eslint-plugin": "^6.2.0",
+    "@typescript-eslint/parser": "^6.2.0",
+    "@web/dev-server-esbuild": "^1.0.1",
+    "@web/test-runner": "^0.18.1",
+    "@web/test-runner-commands": "^0.9.0",
+    "@web/test-runner-playwright": "^0.11.0",
+    "@xstate/fsm": "^3.0.0-beta.3",
+    "better-color-tools": "^0.12.3",
+    "eslint": "^8.46.0",
+    "eslint-config-prettier": "^8.9.0",
+    "eslint-import-resolver-typescript": "^3.5.5",
+    "eslint-plugin-import": "^2.28.0",
+    "eslint-plugin-prettier": "^5.0.0",
+    "force-graph": "^1.43.4",
+    "happy-dom": "^14.11.0",
+    "lit": "^3.0.0",
+    "nvm": "^0.0.4",
+    "parcel": "^2.11.0",
+    "parcel-resolver-fix-ts-esm-shit": "^0.0.1",
+    "parcel-resolver-typescript-esm": "^1.0.1",
+    "playwright": "^1.55.0",
+    "prettier": "^3.0.0",
+    "process": "^0.11.10",
+    "remark-cli": "^12.0.1",
+    "remark-preset-lint-recommended": "^7.0.1",
+    "remark-validate-links": "^13.1.0",
+    "rimraf": "^5.0.1",
+    "tsm": "^2.3.0",
+    "tsup": "^8.1.0",
+    "tsx": "^3.12.7",
+    "typedoc": "^0.28.11",
+    "typedoc-plugin-markdown": "^4.8.1",
+    "typescript": "^5.3.3",
+    "uvu": "^0.5.6",
+    "zx": "^7.2.3"
+  },
+  "peerDependencies": {
+    "@xstate/fsm": "^3.0.0-beta.3",
+    "lit": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "lit": {
+      "optional": true
+    },
+    "@xstate/fsm": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "npm": ">=8.0.0"
+  },
+  "readme": "README.md"
+}
