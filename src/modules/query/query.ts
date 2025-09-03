@@ -1,8 +1,9 @@
 import type {SignalWritable, SignalReadable} from '../adapter/types'
 import {persist} from '../persist'
-import type {QueryOptions, QueryResult, QueryStatus} from './types'
+import type {QueryOptions, QueryResult, QueryStatus, RetryOptions} from './types'
 import type {QueryClient} from './client'
 import type {PersistAdapter} from '../persist/types'
+import {delay} from '../utils/delay'
 
 export function createQuery<TData = unknown, TError = unknown, TSelected = TData>(
   client: QueryClient,
@@ -48,13 +49,14 @@ export function createQuery<TData = unknown, TError = unknown, TSelected = TData
   }
   const error: SignalWritable<TError | undefined> = state<TError | undefined>(undefined)
 
-  async function run(): Promise<void> {
+  async function run(force = false): Promise<void> {
     const record = client.getOrCreateRecord<TData, TError>(options.key)
 
     // fast path: if not stale and we have data, skip fetch
     if (
       typeof options.staleTime === 'number' &&
       record.updatedAt !== undefined &&
+      !force &&
       Date.now() - record.updatedAt <= options.staleTime &&
       record.data.get() !== undefined
     ) {
@@ -75,19 +77,45 @@ export function createQuery<TData = unknown, TError = unknown, TSelected = TData
 
     const execution = (async () => {
       record.status.set('loading')
-      client.notify(options.key)
       try {
-        const result = await options.queryFn()
-        record.data.set(result)
-        record.error.set(undefined)
-        record.status.set('success')
-        record.updatedAt = Date.now()
+        let attempt = 0
+        const max = typeof options.retry === 'number' ? options.retry : options.retry?.count ?? 0
+        const calcDelay = (err: TError): number => {
+          const d = typeof options.retry === 'object' && options.retry?.delay
+          if (typeof d === 'function') return d(attempt, err)
+          // default backoff: 100 * 2^attempt
+          return 100 * Math.pow(2, Math.max(0, attempt - 1))
+        }
+        const canRetry = (err: TError): boolean => {
+          const p = typeof options.retry === 'object' && options.retry?.predicate
+          return typeof p === 'function' ? p(err) : true
+        }
+        // last-write-wins: capture seq id
+        let lastError: TError | undefined
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          try {
+            const result = await options.queryFn()
+            record.data.set(result)
+            record.error.set(undefined as unknown as TError)
+            record.status.set('success')
+            record.updatedAt = Date.now()
+            break
+          } catch (e) {
+            const err = e as TError
+            lastError = err
+            attempt++
+            if (attempt > max || !canRetry(err)) {
+              throw err
+            }
+            await delay(calcDelay(err))
+          }
+        }
       } catch (err) {
         record.error.set(err as TError)
         record.status.set('error')
       } finally {
         record.promise = undefined
-        client.notify(options.key)
       }
     })()
 
@@ -114,8 +142,8 @@ export function createQuery<TData = unknown, TError = unknown, TSelected = TData
     unsubscribe = client.subscribe(options.key, () => {
       const record = client.getOrCreateRecord<TData, TError>(options.key)
       const isStale =
-        record.updatedAt === undefined || Date.now() - record.updatedAt > (options.staleTime ?? 0)
-      if (isStale && record.status.get() !== 'loading') void run()
+        record.updatedAt === undefined || Date.now() - record.updatedAt >= (options.staleTime ?? 0)
+      if (isStale && record.status.get() !== 'loading') void run(true)
     })
   }
 
@@ -132,10 +160,22 @@ export function createQuery<TData = unknown, TError = unknown, TSelected = TData
   let selectedComputed: SignalReadable<TSelected | undefined> | undefined
   if (typeof options.select === 'function') {
     const selector = options.select as (d: TData) => TSelected
-    selectedComputed = client.adapter.computed<TSelected | undefined>(() => {
-      const v = data.get()
-      return v === undefined ? undefined : selector(v)
-    })
+    // Use a writable + subscription to ensure reactivity even with minimal adapters
+    const selectedState: SignalWritable<TSelected | undefined> = client.adapter.state<TSelected | undefined>(
+      undefined,
+    )
+    const applySelection = (v: TData | undefined) => {
+      if (v === undefined) {
+        selectedState.set(undefined)
+      } else {
+        selectedState.set(selector(v))
+      }
+    }
+    // initialize from current data
+    applySelection(data.get())
+    // update on data changes
+    data.subscribe((v) => applySelection(v))
+    selectedComputed = selectedState
   }
 
   const result: QueryResult<TData, TError, TSelected> = {

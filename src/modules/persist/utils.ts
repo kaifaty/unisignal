@@ -33,20 +33,20 @@ export const createPersistLogger = (
   }
 }
 
-type MaybeExternalStateFn = ((...args: any[]) => any) & {
-  peek?: () => any
-  get?: () => any
-  set?: (v: any) => void
-}
+type MaybeExternalState =
+  | (((...args: any[]) => any) & {peek?: () => any; get?: () => any; set?: (v: any) => void})
+  | {peek?: () => any; get?: () => any; set?: (v: any) => void}
 
-const isStatxFn = (value: unknown): value is MaybeExternalStateFn => {
-  if (typeof value !== 'function') return false
-  const v = value as MaybeExternalStateFn
+const isWritableLikeValue = (value: unknown): value is MaybeExternalState => {
+  if (value == null) return false
+  const t = typeof value
+  if (t !== 'function' && t !== 'object') return false
+  const v = value as Record<string, unknown>
   return typeof v.peek === 'function' && typeof v.get === 'function' && typeof v.set === 'function'
 }
 
 const getInitialValue = (value: unknown, storageAdapter: PersistAdapter, name: string) => {
-  if (isStatxFn(value)) {
+  if (isWritableLikeValue(value)) {
     return (value as any)()
   }
 
@@ -188,7 +188,7 @@ export const createPersistState = <T>(
   const logPersist = createPersistLogger(options, 'persist', {name})
   const logSync = createPersistLogger(options, 'sync', {name})
 
-  if (isStatxFn(value)) {
+  if (isWritableLikeValue(value)) {
     // Provided external state: capture its current value for clear()
     initialValue = (value as WritableLike<T>).peek()
     stateValue = value as WritableLike<T>
@@ -293,7 +293,7 @@ export const createPersistState = <T>(
       const g = typeof globalThis !== 'undefined' ? (globalThis as any) : undefined
       const BC = g?.BroadcastChannel
       if (BC) {
-        const channel: BroadcastChannel = new BC(options.broadcastChannelName ?? 'statx-persist')
+        const channel: BroadcastChannel = new BC(options.broadcastChannelName ?? 'unisignal-persist')
         channel.onmessage = (ev: MessageEvent) => {
           const msg = ev.data as {type: 'set' | 'clear'; name: string; value?: unknown}
           if (!msg || msg.name !== name) return
@@ -616,7 +616,7 @@ export const createPersistState = <T>(
   // For wrapped external state with sync storage, perform an immediate refresh
   // to mirror the initial sync restore logic used for internal state.
   try {
-    if (!storageAdapter.isAsync && isStatxFn(value)) {
+    if (!storageAdapter.isAsync && isWritableLikeValue(value)) {
       ;(stateValue as any).refreshFromStorage()
     }
   } catch {

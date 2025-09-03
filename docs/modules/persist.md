@@ -134,7 +134,7 @@ const cart = persist.state(base, [], {
   name: 'cart',
   storage: 'local',
   sync: 'storage', // или 'broadcast'
-  broadcastChannelName: 'statx-persist',
+  broadcastChannelName: 'unisignal-persist',
 })
 ```
 

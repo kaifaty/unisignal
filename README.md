@@ -1,4 +1,4 @@
-# statx
+# unisignal
 
 Минималистичный и модульный state/router/url/persist/i18n/fsm набор для фронтенда.
 

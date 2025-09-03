@@ -1,7 +1,8 @@
 {
   "name": "unisignal",
-  "private": true,
-  "description": "Tiny and effective state manager",
+  "private": false,
+  "version": "0.0.0",
+  "description": "Минималистичный и модульный state/router/url/persist/i18n/fsm набор для фронтенда.",
   "keywords": [
     "state",
     "store",
@@ -10,18 +11,80 @@
     "reactive",
     "reactivity",
     "flux",
-    "@statx",
-    "statx"
+    "@unisignal",
+    "unisignal"
   ],
   "bugs": {
-    "url": "https://github.com/kaifaty/statx/issues"
+    "url": "https://github.com/kaifaty/unisignal/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/kaifaty/statx.git"
+    "url": "git+ssh://git@github.com/kaifaty/unisignal.git"
   },
+  "homepage": "https://github.com/kaifaty/unisignal#readme",
   "license": "MIT",
   "author": "kaifaty",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./modules/adapter": {
+      "types": "./dist/modules/adapter/index.d.mts",
+      "import": "./dist/modules/adapter/index.js",
+      "default": "./dist/modules/adapter/index.js"
+    },
+    "./modules/persist": {
+      "types": "./dist/modules/persist/index.d.mts",
+      "import": "./dist/modules/persist/index.js",
+      "default": "./dist/modules/persist/index.js"
+    },
+    "./modules/router": {
+      "types": "./dist/modules/router/index.d.mts",
+      "import": "./dist/modules/router/index.js",
+      "default": "./dist/modules/router/index.js"
+    },
+    "./modules/url": {
+      "types": "./dist/modules/url/index.d.mts",
+      "import": "./dist/modules/url/index.js",
+      "default": "./dist/modules/url/index.js"
+    },
+    "./modules/utils": {
+      "types": "./dist/modules/utils/index.d.mts",
+      "import": "./dist/modules/utils/index.js",
+      "default": "./dist/modules/utils/index.js"
+    },
+    "./modules/machine": {
+      "types": "./dist/modules/machine/index.d.mts",
+      "import": "./dist/modules/machine/index.js",
+      "default": "./dist/modules/machine/index.js"
+    },
+    "./modules/i18n": {
+      "types": "./dist/modules/i18n/index.d.mts",
+      "import": "./dist/modules/i18n/index.js",
+      "default": "./dist/modules/i18n/index.js"
+    },
+    "./modules/query": {
+      "types": "./dist/modules/query/index.d.mts",
+      "import": "./dist/modules/query/index.js",
+      "default": "./dist/modules/query/index.js"
+    }
+  },
+  "files": [
+    "dist/**",
+    "README.md",
+    "LICENCE.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "tag": "latest"
+  },
   "scripts": {
     "prettify": "prettier --write **/*.json",
     "build": "tsup",

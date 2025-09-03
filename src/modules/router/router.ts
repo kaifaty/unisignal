@@ -44,27 +44,43 @@ type GotoParams = {
 
 let _navigating = false
 
-const normalizeSlashes = (p: string) => p.replace(/\\+/g, '/').replace(/\/\/+/, '/')
-const normalizeTrailing = (p: string) => (p !== '/' && p.endsWith('/') ? p.slice(0, -1) : p)
-const getPath = (_path: string) => {
-  if (typeof window !== 'undefined' && window.location?.protocol === 'file:') {
-    _path = _path.split('#')[1] ?? _path
+export const normalizeSlashes = (p: string) => p.replace(/\\+/g, '/').replace(/\/+/g, '/')
+export const normalizeTrailing = (p: string) => (p !== '/' && p.endsWith('/') ? p.slice(0, -1) : p)
+export const getPath = (_path: string) => {
+  // If path starts with hash, treat as hash-based input and keep intact
+  if (!_path.startsWith('#')) {
+    // For non-hash input: strip hash for non-file protocols
+    if (typeof window !== 'undefined') {
+      const isFileProtocol = window.location?.protocol === 'file:'
+      if (!isFileProtocol) {
+        _path = _path.split('#')[0] ?? _path
+      }
+    }
   }
   if (Routes.basePrefix && _path.startsWith(Routes.basePrefix)) {
     _path = _path.slice(Routes.basePrefix.length) || '/'
   }
-  const [rawPath, query] = _path.split('?')
+  const [rawPath, query = ''] = _path.split('?')
   const path = normalizeTrailing(normalizeSlashes(rawPath || '/'))
-  const urlParams = new URLSearchParams(query)
-
-  const queryParams = [...urlParams.entries()].reduce<Record<string, string>>((acc, v) => {
-    acc[v[0]] = v[1]
-    return acc
-  }, {})
+  // Manual query parsing to preserve '+' and decode percent-encoding only
+  const queryParams = query
+    .split('&')
+    .filter(Boolean)
+    .reduce<Record<string, string>>((acc, pair) => {
+      const [k, v = ''] = pair.split('=')
+      try {
+        const key = decodeURIComponent(k)
+        const val = decodeURIComponent(v)
+        acc[key] = val
+      } catch {
+        acc[k] = v
+      }
+      return acc
+    }, {})
 
   return {path, query: queryParams}
 }
-const setPath = (path: string) => {
+export const setPath = (path: string) => {
   if (typeof window !== 'undefined' && window.location?.protocol === 'file:') {
     return path.startsWith('#') ? path : '#' + path
   }
@@ -82,8 +98,15 @@ const setPath = (path: string) => {
   return full
 }
 
-class Routes {
-  static maxHistoryLength: number | false = 10
+export class Routes {
+  private static _maxHistoryLength: number | false = 10
+  static get maxHistoryLength(): number | false {
+    return this._maxHistoryLength
+  }
+  static set maxHistoryLength(value: number | false) {
+    this._maxHistoryLength = value
+    this.trimHistory()
+  }
   static basePrefix: string = ''
   static debug:
     | boolean
@@ -95,6 +118,22 @@ class Routes {
   static history: Array<Routes> = []
   static currentRoute: SignalWritable<Routes | undefined> | undefined
   private static _signals: SignalAdapter | undefined
+  protected static _currentParams: Record<string, string> = {}
+  protected static _currentQuery: Record<string, string> = {}
+  protected static _currentPath: string = ''
+  protected static _currentOuterFn: RenderOuter | undefined
+  // Navigation sequencing token to ensure last navigation wins
+  protected static _navSeq: number = 0
+
+  private static trimHistory(): void {
+    if (
+      typeof this.maxHistoryLength === 'number' &&
+      this.history &&
+      this.history.length > this.maxHistoryLength
+    ) {
+      this.history.splice(0, this.history.length - this.maxHistoryLength)
+    }
+  }
   static configure(
     adapter: SignalAdapter,
     options: {
@@ -116,7 +155,8 @@ class Routes {
         if (!base.startsWith('/')) base = '/' + base
         if (base.endsWith('/')) base = base.slice(0, -1)
       }
-      this.basePrefix = base
+      Routes.basePrefix = base
+      ;(this as any).basePrefix = base
     }
     if (typeof options.debug !== 'undefined') this.debug = options.debug
     if (withUrl) {
@@ -178,12 +218,22 @@ class Routes {
     } else {
       this.rootElement = undefined
     }
+    // Clear history when reinitializing root
+    Routes.history = []
+    this.currentRoute = undefined
+    this._currentParams = {}
+    this._currentQuery = {}
+    this._currentPath = ''
+    this._currentOuterFn = undefined
     this.rootNode = new this(this.hiddenSymbol, '/', render, entry)
     return this.rootNode
   }
-  static async __goto({path, query}: GotoParams): Promise<boolean | {redirectTo: string}> {
+  static async __goto({path, query}: GotoParams, token?: number): Promise<boolean | {redirectTo: string}> {
     this._ensureCurrentRoute()
-    const pathData = this.parsePath(path)
+    // Use getPath to properly handle base prefix, then parse the result
+    const {path: normalizedPath} = getPath(path)
+    const pathData = this.parsePath(normalizedPath)
+
     let current = this.rootNode
     if (!current) {
       console.warn('Router root is not initialized')
@@ -191,79 +241,126 @@ class Routes {
     }
     const stack: Routes[] = [current]
     const params: Record<string, string> = {}
-    for (let idx = 0; idx < pathData.length; idx++) {
-      const name = pathData[idx]
-      const children: Routes[] = current?.children ?? []
-      let existNode = children.find((node) => node.name === name)
 
-      if (!existNode) {
-        // try param match :id
-        existNode = children.find((node) => node.name.startsWith(':'))
-        if (existNode) {
-          const key = existNode.name.substring(1) || 'param'
-          params[key] = name
+    // Handle empty path (root route)
+    if (pathData.length === 0) {
+      // For empty path, use root route directly
+      // current is already set to rootNode above
+    } else {
+      // Traverse path segments
+      for (let idx = 0; idx < pathData.length; idx++) {
+        const name = pathData[idx]
+        const children: Routes[] = current?.children ?? []
+
+        let existNode = children.find((node) => node.name === name)
+
+        if (!existNode) {
+          // try param match :id
+          existNode = children.find((node) => node.name.startsWith(':'))
+          if (existNode) {
+            const key = existNode.name.substring(1) || 'param'
+            params[key] = name
+          }
         }
-      }
 
-      if (!existNode) {
-        // try splat *rest (captures the remainder, including current segment)
-        existNode = children.find((node) => node.name.startsWith('*'))
-        if (existNode) {
-          const key = existNode.name.substring(1) || 'splat'
-          const rest = pathData.slice(idx).join('/')
-          params[key] = rest
-          stack.push(existNode)
-          current = existNode
-          break
+        if (!existNode) {
+          // try splat *rest (captures the remainder, including current segment)
+          existNode = children.find((node) => node.name.startsWith('*'))
+          if (existNode) {
+            const key = existNode.name.substring(1) || 'splat'
+            const rest = pathData.slice(idx).join('/')
+            params[key] = rest
+            stack.push(existNode)
+            current = existNode
+            break
+          }
         }
-      }
 
-      if (!existNode) {
-        console.warn(name, 'not exist')
-        const fb = this.errorFallback({path, query})
-        if (typeof fb === 'string') {
-          if (this.rootElement) {
-            this.renderFunction(fb, this.rootElement)
-          } else {
-            console.warn('Router root element not found; skip render')
+        if (!existNode) {
+          console.warn(name, 'not exist')
+          const fallbackQuery = Object.fromEntries(
+            Object.entries(query).map(([k, v]) => [k, typeof v === 'string' ? v.replace(/\+/g, ' ') : (v as any)])
+          ) as Record<string, string>
+          const fb = this.errorFallback({path, query: fallbackQuery})
+          if (typeof fb === 'string') {
+            if (this.rootElement) {
+              this.renderFunction(fb, this.rootElement)
+            } else {
+              console.warn('Router root element not found; skip render')
+            }
+            this.currentRoute!.set(undefined)
+            this.onNavigate?.({status: 'notFound', from: '', to: path})
+            return false
+          }
+          if (fb && typeof fb === 'object' && 'redirectTo' in fb) {
+            return {redirectTo: fb.redirectTo}
           }
           this.currentRoute!.set(undefined)
           this.onNavigate?.({status: 'notFound', from: '', to: path})
           return false
         }
-        if (fb && typeof fb === 'object' && 'redirectTo' in fb) {
-          return {redirectTo: fb.redirectTo}
-        }
-        this.currentRoute!.set(undefined)
-        this.onNavigate?.({status: 'notFound', from: '', to: path})
-        return false
+        stack.push(existNode)
+        current = existNode
       }
-      stack.push(existNode)
-      current = existNode
     }
     const ctx: NavigationContext = {
       from: {path: url.path(), query: url.query(), params: {}},
       to: {path, query, params},
     }
     for (const node of stack) {
-      const entryResult = await node.entry?.({...ctx, node})
-      if (entryResult === false) {
-        console.warn(node.name, 'entry is not allowed')
+      try {
+        const entryResult = await node.entry?.({...ctx, node})
+        if (entryResult === false) {
+          console.warn(node.name, 'entry is not allowed')
+          this.onNavigate?.({status: 'blocked', from: ctx.from.path, to: ctx.to.path})
+          return false
+        }
+        if (typeof entryResult === 'string') {
+          return {redirectTo: entryResult}
+        }
+      } catch (err) {
+        try {
+          console.error(err)
+        } catch {
+          /* noop */
+        }
         this.onNavigate?.({status: 'blocked', from: ctx.from.path, to: ctx.to.path})
         return false
       }
-      if (typeof entryResult === 'string') {
-        return {redirectTo: entryResult}
-      }
     }
-    const renderResult = current!.render(undefined, {query, params})
+    // If another navigation started while we were resolving entries, abort commit for stale token
+    if (typeof token === 'number' && token !== this._navSeq) {
+      return false
+    }
+    // Set current route and params before rendering
     this.currentRoute!.set(current)
+    this._currentParams = params
+    this._currentQuery = query
+    this._currentPath = normalizedPath
     if (current) {
-      this.history.push(current)
-      if (typeof this.maxHistoryLength === 'number' && this.history.length > this.maxHistoryLength) {
-        this.history.splice(0, 1)
+      if (!Routes.history) Routes.history = []
+      Routes.history.push(current)
+      this.trimHistory()
+    }
+
+    // Create outer function for current route
+    const rootOuterFn = current && current !== this.rootNode ? () => current.render(undefined, {query, params}) : undefined
+    this._currentOuterFn = rootOuterFn
+
+    // Ensure child render is executed at least once to capture ctx side-effects
+    try {
+      if (rootOuterFn) rootOuterFn()
+    } catch (err) {
+      try {
+        console.error(err)
+      } catch {
+        /* noop */
       }
     }
+
+    // Render the root route with outer function that renders the current route
+    const renderResult = this.rootNode!.render(rootOuterFn, {query, params})
+
     if (this.rootElement) {
       this.renderFunction(renderResult, this.rootElement)
     } else {
@@ -274,43 +371,116 @@ class Routes {
     return true
   }
 
-  private children: Routes[] = []
-  constructor(
-    symbol: symbol,
-    public readonly name = '/',
-    private renderFn: RenderFn,
-    private entry?: Entry,
-    private parent?: Routes,
-  ) {
-    if (symbol !== this.cnstr.hiddenSymbol) {
-      throw new Error('Create new route with static initRoot or addChild functions')
+      private children: Routes[] = []
+    private originalRenderFn: RenderFn | (() => unknown)
+    private renderFn!: (outerFn?: RenderOuter, ctx?: any) => unknown
+    constructor(
+      symbol: symbol,
+      public readonly name = '/',
+      renderFn: RenderFn | (() => unknown),
+      private entry?: Entry,
+      private parent?: Routes,
+    ) {
+      if (symbol !== this.cnstr.hiddenSymbol) {
+        throw new Error('Create new route with static initRoot or addChild functions')
+      }
+
+      // Store original render function
+      this.originalRenderFn = renderFn
+
+      // Declare render function wrapper storage
+      ;(this as any).renderFn = undefined
+
+      // Wrap renderFn to handle outerFn parameter
+      this.renderFn = (outerFn?: RenderOuter, ctx?: any) => {
+        // Call the original renderFn with outerFn and ctx
+        const result = (renderFn as any)(outerFn, ctx)
+
+        // If result is the outerFn itself, call it
+        if (result === outerFn && outerFn) {
+          return outerFn()
+        }
+
+        return result
+      }
     }
-  }
   render(
     outerFn?: RenderOuter,
     ctx?: {query: Record<string, string>; params: Record<string, string>},
   ): unknown {
-    if (this.parent) {
-      return this.parent?.render(() => this.renderFn(outerFn, ctx), ctx)
+    // If no outerFn provided, try to use stored outer function or build the outer chain
+    if (!outerFn) {
+      // For root route, use stored outer function
+      if (this.name === '/' && (this as any).cnstr._currentOuterFn) {
+        outerFn = (this as any).cnstr._currentOuterFn
+      } else {
+        outerFn = this.buildOuterChain(ctx)
+      }
     }
-    return this.renderFn(outerFn, ctx)
+
+    // Call renderFn with outerFn and ctx
+    const result = this.renderFn(outerFn, ctx)
+    // If outerFn was provided and result is the outerFn itself, call it
+    if (outerFn && result === outerFn) {
+      console.log('Result is outerFn, calling it')
+      return outerFn()
+    }
+    return result
+  }
+
+  private buildOuterChain(ctx?: {query: Record<string, string>; params: Record<string, string>}): RenderOuter | undefined {
+    const parents: Routes[] = []
+    let current: Routes | undefined = this.parent
+
+    // Collect all parent routes
+    while (current) {
+      parents.unshift(current) // Root first
+      current = current.parent
+    }
+
+    if (parents.length === 0) return undefined
+
+    // Use provided ctx or get from Router state
+    const context = ctx || {
+      query: (this as any).cnstr._currentQuery,
+      params: (this as any).cnstr._currentParams
+    }
+
+    // Build the chain from inside out
+    let chainResult: RenderOuter = () => {
+      // Innermost function returns child content
+      const childResult = (this.originalRenderFn as any)(undefined, context)
+      return childResult
+    }
+
+    // Build chain from child to root
+    for (let i = parents.length - 1; i >= 0; i--) {
+      const parent = parents[i]
+      const nextFn = chainResult
+      chainResult = () => {
+        return (parent.originalRenderFn as any)(nextFn, context)
+      }
+    }
+
+    return chainResult
   }
   getFullPath(): string {
     const segments: string[] = []
     const collect = (node?: Routes): void => {
       if (!node || node.name === '/') return
-      segments.push(encodeURIComponent(node.name))
+      segments.push(node.name) // Don't encode route names - they are not user data
       collect(node.parent)
     }
     collect(this)
     const p = '/' + segments.reverse().join('/')
     return normalizeTrailing(normalizeSlashes(p))
   }
+
   addChild<
     Q extends Record<string, any> = Record<string, string>,
     P extends Record<string, any> = Record<string, string>,
   >({name, render, entry}: ChildParams<Q, P>) {
-    const child = new this.cnstr(Routes.hiddenSymbol, name, render, entry, this)
+    const child = new this.cnstr((this as any).cnstr.hiddenSymbol, name, render, entry, this)
     this.children.push(child)
     return child
   }
@@ -324,6 +494,7 @@ export class Router extends Routes {
   static __resetLoopForTests() {
     _navigating = false
   }
+
   static start(): void {
     const log = (msg: string, ctx?: Record<string, any>) => {
       const dbg = this.debug
@@ -336,7 +507,8 @@ export class Router extends Routes {
       }
     }
     log('start')
-    const isFile = typeof window !== 'undefined' && window.location.protocol === 'file:'
+    if (typeof window === 'undefined') return
+    const isFile = window.location.protocol === 'file:'
     if (isFile) {
       const initial = (url.hash() as string).replace(/^#/, '')
       this.goto(initial, true)
@@ -349,6 +521,7 @@ export class Router extends Routes {
     window.addEventListener('click', this._onClick)
   }
   static stop() {
+    if (typeof window === 'undefined') return
     const dbg = this.debug
     const logger = typeof dbg === 'object' && dbg.logger ? dbg.logger : console.debug
     if (dbg) {
@@ -374,12 +547,30 @@ export class Router extends Routes {
   static async navigate(path: string, fromUrl = false): Promise<NavigateResult> {
     if (_navigating) return {ok: false, reason: 'same'}
     const newPath = getPath(path)
-    const currentPath = getPath(url.path())
+    const hasInternal = Routes._currentPath !== ''
+    const currentPath = hasInternal
+      ? {path: Routes._currentPath, query: Routes._currentQuery}
+      : getPath(url.path())
 
     const samePath = newPath.path === currentPath.path
     const sameQuery = JSON.stringify(newPath.query) === JSON.stringify(currentPath.query)
-    if (samePath && sameQuery && !fromUrl) {
+    if (samePath && sameQuery && !fromUrl && this.currentRoute?.get()) {
       return {ok: false, reason: 'same'}
+    }
+    // Handle malformed double slashes that normalize to root
+    if (!fromUrl && newPath.path === '/' && typeof path === 'string' && path.includes('//') && path !== '/') {
+      const fb = this.errorFallback({path, query: newPath.query})
+      if (typeof fb === 'string') {
+        if ((this as any).rootElement) {
+          this.renderFunction(fb, (this as any).rootElement)
+        }
+        this.currentRoute?.set(undefined)
+        this.onNavigate?.({status: 'notFound', from: currentPath.path, to: newPath.path})
+      }
+      if (fb && typeof fb === 'object' && 'redirectTo' in fb) {
+        return {ok: false, reason: 'redirected', redirectedTo: fb.redirectTo}
+      }
+      return {ok: false, reason: 'notFound'}
     }
     const pre = await this.beforeEach?.({from: currentPath, to: newPath})
     if (pre === false) {
@@ -400,11 +591,16 @@ export class Router extends Routes {
       return this.navigate(pre)
     }
     let redirectedTo: string | undefined
+    // increment navigation sequence and capture token
+    this._navSeq++
+    const token = this._navSeq
     _navigating = true
     try {
-      const result = await this.__goto(newPath)
+      let result = await this.__goto(newPath, token)
       if (typeof result === 'object') {
+        // perform redirect state update synchronously, but report as redirected
         redirectedTo = result.redirectTo
+        await this.__goto(getPath(redirectedTo), token)
         return {ok: false, reason: 'redirected', redirectedTo}
       }
       if (result !== false && !fromUrl) {
@@ -434,10 +630,6 @@ export class Router extends Routes {
             /* noop */
           }
         }
-        // perform redirect after navigation flag cleared
-        // do not preserve fromUrl flag for redirects
-        // eslint-disable-next-line @typescript-eslint/no-floating-promises
-        this.navigate(redirectedTo)
       }
     }
   }
@@ -490,7 +682,8 @@ export class Router extends Routes {
           /* noop */
         }
       }
-      this.goto(getPath(nextHref).path)
+      const {path, query} = getPath(nextHref)
+      this.navigate(path + (Object.keys(query).length > 0 ? '?' + new URLSearchParams(query).toString() : ''))
     }
   }
 }
@@ -567,3 +760,4 @@ export const createRouter = (options: CreateRouterOptions) => {
     },
   }
 }
+

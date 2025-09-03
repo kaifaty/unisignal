@@ -58,7 +58,7 @@
    }
 
    // потребитель с core
-   import {coreSignalAdapter} from '@statx/core'
+   import {coreSignalAdapter} from '@unisignal/core'
    const counter = createCounter(coreSignalAdapter)
    ```
 
@@ -130,14 +130,14 @@
 
 ### Публичные API (черновик из текущих пакетов)
 
-- core: `list`, `state`, `asyncState`, `computed`, `cachedState`, `makeAutoObservable`, `nodesMap`, `status`, `events`, `recorder`, type/guards: `isAsyncComputed`, `isComputed`, `isListener`, `isStatxFn`, `isState`, `isList`, `assert`, `eachDependency`, `stateTypes`, `reason`, `getDependencyType`, `getNodeType`, `DependencyType`, `ListenerInternal`, плюс все типы из `types`.
+- core: `list`, `state`, `asyncState`, `computed`, `cachedState`, `makeAutoObservable`, `nodesMap`, `status`, `events`, `recorder`, type/guards: `isAsyncComputed`, `isComputed`, `isListener`, `isUnisignalFn`, `isState`, `isList`, `assert`, `eachDependency`, `stateTypes`, `reason`, `getDependencyType`, `getNodeType`, `DependencyType`, `ListenerInternal`, плюс все типы из `types`.
 - persist: `stateLocalStorage`, `stateSessionStorage`, `indexedDBStorage`, типы `Persist*`.
 - router: `Router`, `createRouter`, `NavigateResult`, `buildHref`, `link`.
 - url: `url`.
 - utils: `throttle`, `isEqualSet`, `delay`.
 - lit: `XLitElement`, `SignalElement`, `property`.
 - machine: `withMachine`.
-- react: `statxComponent`.
+- react: `unisignalComponent`.
 - i18n: `createI18n`, `LANGUAGES`, плюс типы (`Lang`, `I18nResult`, ...).
 - visualizer: `openVisualizer` (модуль с сайд‑эффектом и глобалями `window.visualizer`).
 
@@ -157,6 +157,6 @@
 - utils: публичны только `throttle`, `isEqualSet`, `delay`.
 - lit: публичны элементы и декораторы (`XLitElement`, `SignalElement`, `property`).
 - machine: публичен `withMachine`.
-- react: публичен `statxComponent`.
+- react: публичен `unisignalComponent`.
 - i18n: публичны `translation.ts`, `consts.ts`, `types.ts`.
 - visualizer: публичен `openVisualizer`; явно документировать сайд‑эффекты.

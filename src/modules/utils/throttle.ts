@@ -5,34 +5,26 @@ export const throttle = <F extends AnyFunc>(
   f: F,
   time: number,
 ): ((...args: Parameters<F>) => Promise<ReturnType<F>>) => {
-  let lastCalcTime = 0
+  // Для time <= 0 выполняем вызов немедленно без таймера
+  if (time <= 0) {
+    return ((...args: Parameters<F>) => Promise.resolve(f(...(args as unknown as Parameters<F>)))) as (
+      ...args: Parameters<F>
+    ) => Promise<ReturnType<F>>
+  }
   let timer: NodeJS.Timeout | number = 0
   let lastArgs: any
-
   const promises: Promises<ReturnType<F>>[] = []
 
   return (...args: any[]) => {
-    return new Promise<ReturnType<F>>((r) => {
-      const currentTime = Date.now()
-      const diffTime = currentTime - lastCalcTime
+    return new Promise<ReturnType<F>>((resolve) => {
       lastArgs = args
-
-      if (diffTime > time || lastCalcTime === 0) {
-        r(f(...lastArgs))
-        lastCalcTime = currentTime
-        clearTimeout(timer)
-        timer = 0
-        return
-      }
-      promises.push(r)
-      if (timer) {
-        return
-      }
+      promises.push(resolve)
+      if (timer) return
       timer = setTimeout(() => {
-        const data = f(...lastArgs)
-        promises.forEach((r) => r(data))
+        const result = f(...(lastArgs as Parameters<F>))
+        // resolve all waiters with the same result
+        for (const r of promises.splice(0, promises.length)) r(result as any)
         timer = 0
-        lastCalcTime = currentTime
       }, time)
     })
   }

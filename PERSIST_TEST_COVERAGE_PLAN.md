@@ -7,7 +7,7 @@
    - Hooks/флаги: onPersisStateInit, onRestore, onPersist, onClear; isRestored/restoredOnce до/после restore и clear.
    - refreshFromStorage: sync/async ветви, TTL/deserialize/validate/decrypt ветки.
 
-2. Синхронизация через StorageEvent (sync: 'storage')
+2. Синхронизация через StorageEvent (sync: 'storage') — ГОТОВО
    - Установка нового значения → восстановление.
    - Очистка ключа → сброс к initial.
    - Просроченный TTL → onExpire + сброс.
@@ -15,62 +15,62 @@
    - decrypt/deserialize/validate ошибки → onError соответствующих фаз.
    - Namespace (строка и функция): корректная адресация ключей.
 
-3. Синхронизация через BroadcastChannel (sync: 'broadcast')
+3. Синхронизация через BroadcastChannel (sync: 'broadcast') — ГОТОВО
    - Рассылка set между инстансами → приём и onRestore.
    - Невалидное входящее значение (validate false) → игнор.
    - Отсутствие зацикливания/эхо.
 
-4. Computed: кэширование
-   - persist=true: запись в сторадж с name/namespace; обновление при изменении.
-   - TTL: просрочка → не восстанавливать, onExpire.
-   - serialize/deserialize/validate ошибки при чтении кэша.
-   - Auto-name: в dev — автогенерация имени при отсутствии name; в production — без name кэш не включается.
+4. Computed: кэширование — ГОТОВО
+   - persist=true: запись в сторадж с name/namespace; обновление при изменении. — покрыто
+   - TTL: просрочка → не восстанавливать, onExpire. — покрыто (не восстанавливаем, запись нового значения при изменении)
+   - serialize/deserialize/validate ошибки при чтении кэша. — покрыто
+   - Auto-name: в dev — автогенерация имени при отсутствии name; в production — без name кэш не включается. — покрыто (dev)
 
-5. wrap: внешний writable
-   - Инициализация: clear() откатывает к начальному внешнему значению.
-   - refreshFromStorage для async стораджа: подтягивание изменений извне.
-   - Флаги/хуки: isRestored/restoredOnce/onRestore/onClear корректны.
+5. wrap: внешний writable — ГОТОВО
+   - Инициализация: clear() откатывает к начальному внешнему значению. — покрыто
+   - refreshFromStorage для async стораджа: подтягивание изменений извне. — покрыто
+   - Флаги/хуки: isRestored/restoredOnce/onRestore/onClear корректны. — покрыто
 
-6. Throttle и лимиты
-   - throttle > 0: серия set приводит к одному persisted write (последнее значение); onPersist вызван ограниченно.
-   - maxSizeKb: превышение → onError('limit'), запись не происходит.
-   - В связке с encrypt: лимит проверяется по зашифрованному payload.
+6. Throttle и лимиты — ГОТОВО
+   - throttle > 0: серия set приводит к одному persisted write (последнее значение); onPersist вызван ограниченно. — покрыто
+   - maxSizeKb: превышение → onError('limit'), запись не происходит. — покрыто
+   - В связке с encrypt: лимит проверяется по зашифрованному payload. — покрыто
 
-7. Адаптеры хранилищ
-   - 'local'/'session' (fallback in-memory): запись/чтение/keys.
-   - LocalAdapter: запрет типов (symbol/function/bigint) → console.error, запись отсутствует.
-   - LocalAdapter: повреждённый JSON в getItem → возврат undefined и удаление ключа.
-   - IndexedDBAdapter (если окружение позволяет): set/get/keys базовый сценарий.
+7. Адаптеры хранилищ — ГОТОВО
+   - 'local'/'session' (fallback in-memory): запись/чтение/keys. — покрыто
+   - LocalAdapter: запрет типов (symbol/function/bigint) → console.error, запись отсутствует. — покрыто
+   - LocalAdapter: повреждённый JSON в getItem → возврат undefined и удаление ключа. — покрыто
+   - IndexedDBAdapter (если окружение позволяет): set/get/keys базовый сценарий. — покрыто
 
-8. Списки ключей и очистка
-   - keys и clearAll без namespace и с namespace (строка/функция).
-   - async сторадж (idb): корректный список/очистка.
+8. Списки ключей и очистка — ГОТОВО
+   - keys и clearAll без namespace и с namespace (строка/функция). — покрыто
+   - async сторадж (idb): корректный список/очистка. — покрыто
 
-9. with/enhancer/use
-   - with: мердж defaults storage/namespace с опциями вызова; приоритет явных опций.
-   - enhancer: добавление persist в адаптер; compose через use (несколько enhancers).
+9. with/enhancer/use — ГОТОВО
+   - with: мердж defaults storage/namespace с опциями вызова; приоритет явных опций. — покрыто
+   - enhancer: добавление persist в адаптер; compose через use (несколько enhancers). — покрыто
 
-10. Namespace и автоимена
+10. Namespace и автоимена — ГОТОВО
 
 - Проверка коллизий: одинаковые name в разных namespace не конфликтуют.
 - Функциональный namespace для state/computed и для keys/clearAll.
 
-11. Безопасность/шифрование
+11. Безопасность/шифрование — ГОТОВО
 
 - encrypt/decrypt рабочий сценарий: запись/чтение, decrypt в StorageEvent.
 - Ошибка decrypt → onError('decrypt'), игнор значения, fallback.
 
-12. Интеграция с query
+12. Интеграция с query — ГОТОВО
 
 - persist.state для данных запроса: начальное восстановление без затирания до fetch.
 - TTL по умолчанию из staleTime; persistNamespace/persistStorage из QueryClient.
 - selected (computed) работает с восстановленным значением.
 
-13. SSR/окружение (опционально)
+13. SSR/окружение (опционально) — ГОТОВО
 
 - Отсутствие globalThis.window/localStorage/sessionStorage → безопасный fallback, без ошибок при инициализации.
 
-14. Диагностика/логи (опционально)
+14. Диагностика/логи (опционально) — ГОТОВО
 
 - debug true/кастомный logger: отсутствие падений, вызовы логгера в ключевых фазах (smoke-тест).
 

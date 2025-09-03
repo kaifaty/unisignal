@@ -328,7 +328,7 @@ describe('router: history management', () => {
     })
 
     const result = await Router.navigate('/test')
-    expect(result).to.equal(true) // Ensure navigation succeeded
+    expect(result.ok).to.equal(true) // Ensure navigation succeeded
 
     // Access through getter
     const history = (Router as any).history

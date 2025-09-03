@@ -26,6 +26,14 @@ export type QueryKey = readonly unknown[]
 
 export type QueryStatus = 'idle' | 'loading' | 'success' | 'error'
 
+export type RetryOptions<TError = unknown> =
+  | number
+  | {
+      count: number
+      delay?: (attempt: number, error: TError) => number
+      predicate?: (error: TError) => boolean
+    }
+
 export interface QueryOptions<TData = unknown, TError = unknown, TSelected = TData> {
   key: QueryKey
   queryFn: () => Promise<TData>
@@ -37,6 +45,7 @@ export interface QueryOptions<TData = unknown, TError = unknown, TSelected = TDa
   persist?: PersistDataOptions<TData>
   select?: (data: TData) => TSelected
   keepPreviousData?: boolean
+  retry?: RetryOptions<TError>
 }
 
 export interface QueryResult<TData = unknown, TError = unknown, TSelected = TData> {

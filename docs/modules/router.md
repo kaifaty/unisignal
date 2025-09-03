@@ -5,9 +5,9 @@
 ### Quick Start
 
 ```ts
-import {createLitSignalsAdapter} from '@statx/adapter/lit-signals'
-import {url, configure as configureUrl} from '@statx/url'
-import {Router, createRouter, buildHref, link} from '@statx/router'
+import {createLitSignalsAdapter} from '@unisignal/adapter/lit-signals'
+import {url, configure as configureUrl} from '@unisignal/url'
+import {Router, createRouter, buildHref, link} from '@unisignal/router'
 
 // Адаптер сигналов
 const adapter = createLitSignalsAdapter()

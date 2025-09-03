@@ -20,7 +20,10 @@ export function createMutation<TData = unknown, TError = unknown, TVariables = u
       error.set(undefined)
       status.set('success')
       if (options.onSuccess) options.onSuccess(result, variables)
-      // Invalidate keys later via client.invalidate
+      // Auto-invalidate if configured
+      if (options.invalidateKeys && Array.isArray(options.invalidateKeys)) {
+        for (const k of options.invalidateKeys) client.invalidate(k)
+      }
       return result
     } catch (err) {
       const casted = err as TError

@@ -2,7 +2,7 @@
 import {NOT_ALLOWED_TYPES} from '../consts'
 import type {PersistAdapter} from '../types'
 
-const DB_NAME = 'statx-store'
+const DB_NAME = 'unisignal-store'
 const STORE_NAME = 'key-val'
 const VERSION = 1
 
