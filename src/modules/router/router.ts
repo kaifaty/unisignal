@@ -512,11 +512,21 @@ export class Router extends Routes {
     if (isFile) {
       const initial = (url.hash() as string).replace(/^#/, '')
       this.goto(initial, true)
-      this.unsub = url.hash.subscribe((h: string) => this.goto(h.replace(/^#/, ''), true))
+      const hashWritable: any = (url as any).hash
+      const hashSignal: any = (url as any).hashSignal
+      const subscribe = hashWritable?.subscribe ?? hashSignal?.subscribe
+      if (typeof subscribe === 'function') {
+        this.unsub = subscribe((h: string) => this.goto(h.replace(/^#/, ''), true))
+      }
     } else {
       const initialPath = getPath(url.path()).path
       this.goto(initialPath, true)
-      this.unsub = url.path.subscribe((path: string) => this.goto(getPath(path).path, true))
+      const pathWritable: any = (url as any).path
+      const pathSignal: any = (url as any).pathSignal
+      const subscribe = pathWritable?.subscribe ?? pathSignal?.subscribe
+      if (typeof subscribe === 'function') {
+        this.unsub = subscribe((path: string) => this.goto(getPath(path).path, true))
+      }
     }
     window.addEventListener('click', this._onClick)
   }
@@ -586,17 +596,17 @@ export class Router extends Routes {
       }
       return {ok: false, reason: 'blocked'}
     }
-    if (typeof pre === 'string') {
-      this.onNavigate?.({status: 'redirected', from: currentPath.path, to: newPath.path, redirectedTo: pre})
-      return this.navigate(pre)
-    }
     let redirectedTo: string | undefined
+    if (typeof pre === 'string') {
+      // Обрабатываем редирект из beforeEach без рекурсии
+      redirectedTo = pre
+    }
     // increment navigation sequence and capture token
     this._navSeq++
     const token = this._navSeq
     _navigating = true
     try {
-      let result = await this.__goto(newPath, token)
+      let result = await this.__goto(redirectedTo ? getPath(redirectedTo) : newPath, token)
       if (typeof result === 'object') {
         // perform redirect state update synchronously, but report as redirected
         redirectedTo = result.redirectTo
@@ -604,17 +614,23 @@ export class Router extends Routes {
         return {ok: false, reason: 'redirected', redirectedTo}
       }
       if (result !== false && !fromUrl) {
-        url.push(setPath(path))
+        // При редиректе обновляем URL конечным путём
+        const finalPath = redirectedTo ? redirectedTo : path
+        url.push(setPath(finalPath))
       }
-      const ok = result !== false
+      const ok = result !== false && !redirectedTo
       const dbg = this.debug
       const logger = typeof dbg === 'object' && dbg.logger ? dbg.logger : console.debug
       if (dbg) {
         try {
-          logger('[router] navigate', {from: currentPath, to: newPath, ok})
+          logger('[router] navigate', {from: currentPath, to: redirectedTo ? getPath(redirectedTo) : newPath, ok})
         } catch {
           /* noop */
         }
+      }
+      if (redirectedTo) {
+        // onNavigate('redirected') будет отправлен в finally
+        return {ok: false, reason: 'redirected', redirectedTo}
       }
       return {ok}
     } finally {

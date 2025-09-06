@@ -146,6 +146,9 @@ export class StateURL {
     if (!StateURL._env.window) {
       return
     }
+    if (this._disposed) {
+      return
+    }
     this.query.set(parseQueryParams())
     this.path.set(StateURL._env.location!.pathname)
     this.hash.set(StateURL._env.location!.hash)
@@ -154,10 +157,12 @@ export class StateURL {
   private _unsubHash?: () => void
   private init() {
     const pop = (e: PopStateEvent) => {
+      if (this._disposed) return
       this.state.set(e.state)
       this.onLocationChange()
     }
     const hash = () => {
+      if (this._disposed) return
       this.onLocationChange()
     }
     StateURL._env.window!.addEventListener('popstate', pop)
@@ -174,6 +179,22 @@ export class StateURL {
     } catch {
       // ignore dispose errors
     }
+  }
+  // TEST-ONLY: полный сброс состояния URL между тестами
+  __resetForTests() {
+    try {
+      this.dispose()
+    } catch {}
+    // Сброс всех внутренних флагов и ссылок, чтобы следующая инициализация
+    // создала новые сигналы с актуальным адаптером и переназначила слушателей
+    ;(this as any)._initialized = false
+    ;(this as any)._disposed = false
+    ;(this as any)._query = undefined
+    ;(this as any)._path = undefined
+    ;(this as any)._hash = undefined
+    ;(this as any)._state = undefined
+    ;(this as any)._unsubPop = undefined
+    ;(this as any)._unsubHash = undefined
   }
   private _ensureInit() {
     if (this._initialized) return
