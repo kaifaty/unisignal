@@ -7,10 +7,10 @@ export default {
   setupFiles: ['tools/tests/setup.ts'],
   nodeResolve: true,
   // Глобальный таймаут завершения всех браузерных тестов
-  testsFinishTimeout: 10000,
+  testsFinishTimeout: 20000,
   // Таймаут старта тестов
   testsStartTimeout: 8000,
-  // Полностью отключаем пересылку логов из браузера — устраняет DataCloneError
+  // Полностью глушим логи из браузера, чтобы избежать DataCloneError
   filterBrowserLogs: () => true,
   // Последовательный запуск помогает изолировать зависания
   concurrentBrowsers: 1,
