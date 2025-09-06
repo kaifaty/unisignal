@@ -79,7 +79,18 @@ export function createRouterTestEnv(options?: {
   // Функция очистки
   const cleanup = () => {
     Router.stop()
-    ;(url as any).constructor.configureEnv(null)
+    // Сбрасываем env к дефолтным геттерам
+    ;(url as any).constructor.configureEnv({
+      get window() {
+        return (globalThis as any).window
+      },
+      get location() {
+        return ((globalThis as any).window as any)?.location
+      },
+      get history() {
+        return ((globalThis as any).window as any)?.history
+      },
+    })
   }
 
   return {

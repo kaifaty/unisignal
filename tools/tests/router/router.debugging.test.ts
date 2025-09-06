@@ -17,7 +17,15 @@ describe('router: debugging', () => {
   })
 
   afterEach(() => {
+    try {
+      Router.stop()
+    } catch {}
     ;(Router as any).debug = false
+    try {
+      const {url} = require('../../../src/modules/url')
+      ;(url as any).dispose?.()
+      ;(url as any).__resetForTests?.()
+    } catch {}
   })
 
   it('does not log when debug is false', async () => {

@@ -9,6 +9,17 @@ describe('router: navigation', () => {
     Router.__resetLoopForTests()
   })
 
+  afterEach(() => {
+    try {
+      Router.stop()
+    } catch {}
+    try {
+      const {url} = require('../../../src/modules/url')
+      ;(url as any).dispose?.()
+      ;(url as any).__resetForTests?.()
+    } catch {}
+  })
+
   it('navigates to simple route successfully', async () => {
     const {adapter} = createRouterTestEnv({withUrl: true, initialPath: '/'})
 

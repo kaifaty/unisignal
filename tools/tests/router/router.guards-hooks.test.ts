@@ -9,6 +9,15 @@ describe('router: guards and hooks', () => {
   })
 
   afterEach(() => {
+    try {
+      Router.stop()
+    } catch {}
+    try {
+      // сброс URL между тестами на случай подписок
+      const {url} = require('../../../src/modules/url')
+      ;(url as any).dispose?.()
+      ;(url as any).__resetForTests?.()
+    } catch {}
     // Reset hooks
     Router.beforeEach = undefined
     Router.afterEach = undefined
