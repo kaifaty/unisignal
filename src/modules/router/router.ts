@@ -469,11 +469,20 @@ export class Routes {
   ): unknown {
     // If no outerFn provided, try to use stored outer function or build the outer chain
     if (!outerFn) {
-      // For root route, use stored outer function
-      if (this.name === '/' && (this as any).cnstr._currentOuterFn) {
-        outerFn = (this as any).cnstr._currentOuterFn
+      const cn = (this as any).cnstr
+      const context = ctx || {query: cn._currentQuery, params: cn._currentParams}
+      // For root route, use stored outer function when present
+      if (this.name === '/' && cn._currentOuterFn) {
+        outerFn = cn._currentOuterFn
       } else {
-        outerFn = this.buildOuterChain(ctx)
+        // Build chain excluding root, then wrap with root renderer if available
+        const chainExcludingRoot = this.buildOuterChain(context)
+        const root: Routes | undefined = cn.rootNode
+        if (root && typeof (root as any).originalRenderFn === 'function') {
+          outerFn = () => (root as any).originalRenderFn(chainExcludingRoot, context)
+        } else {
+          outerFn = () => (chainExcludingRoot ? chainExcludingRoot() : undefined)
+        }
       }
     }
 
@@ -491,37 +500,52 @@ export class Routes {
     const parents: Routes[] = []
     let current: Routes | undefined = this.parent
 
-    // Collect all parent routes
+    // Collect all parent routes except the root ('/')
     while (current) {
-      parents.unshift(current) // Root first
+      if (current.name !== '/') parents.unshift(current)
       current = current.parent
     }
-
-    if (parents.length === 0) return undefined
 
     // Use provided ctx or get from Router state
     const context = ctx || {
       query: (this as any).cnstr._currentQuery,
-      params: (this as any).cnstr._currentParams
+      params: (this as any).cnstr._currentParams,
     }
 
-    // Build the chain from inside out
-    let chainResult: RenderOuter = () => {
-      // Innermost function returns child content
-      const childResult = (this.originalRenderFn as any)(undefined, context)
-      return childResult
-    }
+    // Leaf renderer (deepest current route) – always returns child content
+    const leafFn: RenderOuter = () => (this.originalRenderFn as any)(undefined, context)
 
-    // Build chain from child to root
+    // If no parents, just return leaf renderer
+    if (parents.length === 0) return leafFn
+
+    // Compose from child to root, allowing parents to optionally wrap via `outer()`
+    let chainResult: RenderOuter = leafFn
     for (let i = parents.length - 1; i >= 0; i--) {
       const parent = parents[i]
       const nextFn = chainResult
       chainResult = () => {
-        return (parent.originalRenderFn as any)(nextFn, context)
+        let outerUsed = false
+        const outer = () => {
+          outerUsed = true
+          return nextFn()
+        }
+        const result = (parent.originalRenderFn as any)(outer, context)
+        // If parent used `outer()`, respect parent's composed result; otherwise prefer child content
+        return outerUsed ? result : nextFn()
       }
     }
 
     return chainResult
+  }
+  private buildInnerContent(
+    ctx?: {query: Record<string, string>; params: Record<string, string>},
+  ): RenderOuter {
+    // Use provided ctx or get from Router state
+    const context = ctx || {
+      query: (this as any).cnstr._currentQuery,
+      params: (this as any).cnstr._currentParams,
+    }
+    return () => (this.originalRenderFn as any)(undefined, context)
   }
   getFullPath(): string {
     const segments: string[] = []
