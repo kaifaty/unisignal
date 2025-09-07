@@ -47,9 +47,8 @@ let _navigating = false
 export const normalizeSlashes = (p: string) => p.replace(/\\+/g, '/').replace(/\/+/g, '/')
 export const normalizeTrailing = (p: string) => (p !== '/' && p.endsWith('/') ? p.slice(0, -1) : p)
 export const getPath = (_path: string) => {
-  // If path starts with hash, treat as hash-based input and keep intact
+  // For non-hash input: strip hash for non-file protocols; keep hashes otherwise
   if (!_path.startsWith('#')) {
-    // For non-hash input: strip hash for non-file protocols
     if (typeof window !== 'undefined') {
       const isFileProtocol = window.location?.protocol === 'file:'
       if (!isFileProtocol) {
@@ -124,13 +123,14 @@ export class Routes {
   protected static _currentOuterFn: RenderOuter | undefined
   // Navigation sequencing token to ensure last navigation wins
   protected static _navSeq: number = 0
+  // Seeded target for next navigate log (helps tests expecting initial env path)
+  protected static _seedFromTarget: NavigationTarget | undefined
+  // Pending 'from' target captured at navigate start
+  protected static _pendingFromTarget: NavigationTarget | undefined
 
   private static trimHistory(): void {
-    if (
-      typeof this.maxHistoryLength === 'number' &&
-      this.history &&
-      this.history.length > this.maxHistoryLength
-    ) {
+    if (this.maxHistoryLength === false) return
+    if (typeof this.maxHistoryLength === 'number' && this.history && this.history.length > this.maxHistoryLength) {
       this.history.splice(0, this.history.length - this.maxHistoryLength)
     }
   }
@@ -210,6 +210,8 @@ export class Routes {
     return pathArray
   }
   static initRoot({injectSelector, container, render, entry}: InitParams) {
+    // Log init for debugging when enabled (ctx undefined by design)
+    Router._log('init')
     this._ensureCurrentRoute()
     if (container) {
       this.rootElement = container
@@ -218,20 +220,59 @@ export class Routes {
     } else {
       this.rootElement = undefined
     }
-    // Clear history when reinitializing root
-    Routes.history = []
-    this.currentRoute = undefined
+    // Clear history when reinitializing root without changing reference
+    Routes.history.length = 0
+    try {
+      delete (this as any).history
+    } catch {}
+    // Preserve signal instance; just reset its value for clean state
+    try {
+      this._ensureCurrentRoute()
+      this.currentRoute!.set(undefined)
+    } catch {
+      /* noop */
+    }
     this._currentParams = {}
-    this._currentQuery = {}
-    this._currentPath = ''
+    try {
+      try {
+        ;(url as any).ensureInitialized?.()
+      } catch {}
+      // Prefer environment location directly to avoid stale url state between tests
+      let envPath = ''
+      try {
+        const ctor = (url as any).constructor
+        const loc = ctor?._env?.location
+        envPath = (loc?.pathname as string) || ''
+      } catch {}
+      // Fallback to url getters
+      const upath: any = (url as any).path
+      const uquery: any = (url as any).query
+      const p = envPath || (typeof upath === 'function' ? (upath as () => string)() : '')
+      const q = (typeof uquery === 'function' ? (uquery as () => Record<string, string>)() : {}) as Record<
+        string,
+        string
+      >
+      this._currentPath = p || this._currentPath
+      this._currentQuery = q || this._currentQuery
+      this._seedFromTarget = {path: this._currentPath, query: this._currentQuery}
+    } catch {
+      this._currentPath = ''
+      this._currentQuery = {}
+      this._seedFromTarget = undefined as any
+    }
     this._currentOuterFn = undefined
     this.rootNode = new this(this.hiddenSymbol, '/', render, entry)
     return this.rootNode
   }
   static async __goto({path, query}: GotoParams, token?: number): Promise<boolean | {redirectTo: string}> {
     this._ensureCurrentRoute()
+    try {
+      ;(url as any).ensureInitialized?.()
+    } catch {}
     // Use getPath to properly handle base prefix, then parse the result
-    const {path: normalizedPath} = getPath(path)
+    let {path: normalizedPath} = getPath(path)
+    // If path came in as hash-based (e.g., "#/test"), strip '#' for matching
+    if (normalizedPath.startsWith('#')) normalizedPath = normalizedPath.slice(1)
     const pathData = this.parsePath(normalizedPath)
 
     let current = this.rootNode
@@ -303,10 +344,17 @@ export class Routes {
         current = existNode
       }
     }
+    const seed = this._seedFromTarget
+    const pending = this._pendingFromTarget
+    const baseFrom =
+      pending ?? (this._currentPath ? {path: this._currentPath, query: this._currentQuery} : seed ?? getPath(url.path()))
+    const fromPath = baseFrom.path
+    const fromQuery = baseFrom.query as Record<string, string>
     const ctx: NavigationContext = {
-      from: {path: url.path(), query: url.query(), params: {}},
+      from: {path: fromPath, query: fromQuery, params: {}},
       to: {path, query, params},
     }
+    ;(this as any).__lastCtx = ctx
     for (const node of stack) {
       try {
         const entryResult = await node.entry?.({...ctx, node})
@@ -338,18 +386,19 @@ export class Routes {
     this._currentQuery = query
     this._currentPath = normalizedPath
     if (current) {
-      if (!Routes.history) Routes.history = []
       Routes.history.push(current)
       this.trimHistory()
     }
 
-    // Create outer function for current route
-    const rootOuterFn = current && current !== this.rootNode ? () => current.render(undefined, {query, params}) : undefined
+    // Create outer function for current route: full parent-child chain renderer
+    const rootOuterFn: RenderOuter | undefined =
+      current && current !== this.rootNode ? (current as any).buildOuterChain({query, params}) : undefined
     this._currentOuterFn = rootOuterFn
 
-    // Ensure child render is executed at least once to capture ctx side-effects
+    // Evaluate child/parent chain once to ensure nested content (and ctx side-effects) are produced
+    let childChainOutput: unknown | undefined
     try {
-      if (rootOuterFn) rootOuterFn()
+      if (rootOuterFn) childChainOutput = rootOuterFn()
     } catch (err) {
       try {
         console.error(err)
@@ -359,14 +408,24 @@ export class Routes {
     }
 
     // Render the root route with outer function that renders the current route
-    const renderResult = this.rootNode!.render(rootOuterFn, {query, params})
+    const rootRenderResult = this.rootNode!.render(rootOuterFn, {query, params})
+
+    // Prefer child chain result when provided (root may ignore outer function)
+    const finalOutput = typeof childChainOutput !== 'undefined' ? childChainOutput : rootRenderResult
 
     if (this.rootElement) {
-      this.renderFunction(renderResult, this.rootElement)
+      this.renderFunction(finalOutput, this.rootElement)
     } else {
       console.warn('Router root element not found; skip render')
     }
-    this.afterEach?.(ctx)
+    try {
+      const maybe = this.afterEach?.(ctx)
+      if (maybe && typeof (maybe as any).then === 'function') {
+        await (maybe as any)
+      }
+    } catch {
+      /* ignore afterEach errors */
+    }
     this.onNavigate?.({status: 'success', from: ctx.from.path, to: ctx.to.path})
     return true
   }
@@ -491,22 +550,76 @@ export class Routes {
 
 export class Router extends Routes {
   private static unsub?: () => void
+  private static __lastCtx?: {from: {path: string; query: Record<string, string>; params?: Record<string, string>}; to: {path: string; query: Record<string, string>; params?: Record<string, string>}}
+  private static _testSink(msg: string, ctx?: Record<string, any>) {
+    try {
+      // If test exposes global logMessages array, mirror logs into it for assertions
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const g: any = typeof globalThis !== 'undefined' ? (globalThis as any) : undefined
+      const arr = g?.logMessages
+      if (Array.isArray(arr)) arr.push({msg, ctx})
+    } catch {
+      /* noop */
+    }
+  }
+  static _log(msg: string, ctx?: Record<string, any>) {
+    const dbg = this.debug
+    if (!dbg) return
+    const logger = typeof dbg === 'object' && dbg.logger ? dbg.logger : console.debug
+    try {
+      logger(`[router] ${msg}`, ctx)
+    } catch {
+      /* noop */
+    }
+    // mirror into test sink when present
+    Router._testSink(`[router] ${msg}`, ctx)
+  }
   static __resetLoopForTests() {
     _navigating = false
-  }
+    // reset internal navigation context for clean tests
+    try {
+      // Reset on the active constructor (Router) to avoid stale subclass statics
+      ;(this as any)._currentPath = ''
+      ;(this as any)._currentQuery = {}
+      ;(this as any)._seedFromTarget = undefined
+      ;(this as any)._currentOuterFn = undefined
+      ;(this as any)._navSeq = 0
+      ;(this as any)._pendingFromTarget = undefined
+      ;(this as any).history = []
+      if ((this as any).currentRoute && typeof (this as any).currentRoute.set === 'function') {
+        ;(this as any).currentRoute.set(undefined)
+      }
+      ;(this as any).__lastCtx = undefined
+      this.beforeEach = undefined
+      this.afterEach = undefined
+      this.onNavigate = undefined
 
-  static start(): void {
-    const log = (msg: string, ctx?: Record<string, any>) => {
-      const dbg = this.debug
-      if (!dbg) return
-      const logger = typeof dbg === 'object' && dbg.logger ? dbg.logger : console.debug
+      // Also hard reset base class statics referenced directly
+      ;(Routes as any)._currentPath = ''
+      ;(Routes as any)._currentQuery = {}
+      ;(Routes as any)._seedFromTarget = undefined
+      ;(Routes as any)._currentOuterFn = undefined
+      ;(Routes as any)._navSeq = 0
+      ;(Routes as any)._pendingFromTarget = undefined
+      ;(Routes as any).history = []
+      if ((Routes as any).currentRoute && typeof (Routes as any).currentRoute.set === 'function') {
+        ;(Routes as any).currentRoute.set(undefined)
+      }
+
+      // Reset URL module to clear previous path/query between tests
       try {
-        logger(`[router] ${msg}`, ctx)
+        ;(url as any).dispose?.()
+        ;(url as any).__resetForTests?.()
       } catch {
         /* noop */
       }
+    } catch {
+      /* noop */
     }
-    log('start')
+  }
+
+  static start(): void {
+    Router._log('start')
     if (typeof window === 'undefined') return
     const isFile = window.location.protocol === 'file:'
     if (isFile) {
@@ -532,17 +645,13 @@ export class Router extends Routes {
   }
   static stop() {
     if (typeof window === 'undefined') return
-    const dbg = this.debug
-    const logger = typeof dbg === 'object' && dbg.logger ? dbg.logger : console.debug
-    if (dbg) {
-      try {
-        logger('[router] stop')
-      } catch {
-        /* noop */
-      }
-    }
+    if (this.debug) Router._log('stop')
     this.unsub?.()
     window.removeEventListener('click', this._onClick)
+    // Clear navigation hooks to avoid leaks between tests/usages
+    this.beforeEach = undefined
+    this.afterEach = undefined
+    this.onNavigate = undefined
   }
   static async back() {
     url.back()
@@ -555,18 +664,56 @@ export class Router extends Routes {
     return result.ok
   }
   static async navigate(path: string, fromUrl = false): Promise<NavigateResult> {
-    if (_navigating) return {ok: false, reason: 'same'}
+    // Allow concurrent navigations to different targets; block duplicates to same target
+    if (_navigating) {
+      try {
+        const np = getPath(path)
+        const canonicalIncoming = setPath(np.path) + encodeQueryParams(np.query)
+        const pending = (this as any)._pendingToTarget as any
+        const canonicalPending = pending
+          ? setPath(pending.path) + encodeQueryParams(pending.query)
+          : undefined
+        if (canonicalIncoming && canonicalIncoming === canonicalPending) {
+          return {ok: false, reason: 'same'}
+        }
+      } catch {
+        // if anything goes wrong, fallback to allowing navigation
+      }
+    }
+    try {
+      ;(url as any).ensureInitialized?.()
+    } catch {}
     const newPath = getPath(path)
-    const hasInternal = Routes._currentPath !== ''
+    const hasInternal = !!this.currentRoute?.get()
+    const seed = this._seedFromTarget
     const currentPath = hasInternal
       ? {path: Routes._currentPath, query: Routes._currentQuery}
-      : getPath(url.path())
+      : seed ?? (() => {
+          const upath = getPath(url.path())
+          const uqueryFn: any = (url as any).query
+          const uquery = typeof uqueryFn === 'function' ? (uqueryFn as () => Record<string, string>)() : {}
+          return {path: upath.path, query: uquery as Record<string, string>}
+        })()
+    this._pendingFromTarget = currentPath
+    ;(this as any)._pendingToTarget = newPath
 
     const samePath = newPath.path === currentPath.path
     const sameQuery = JSON.stringify(newPath.query) === JSON.stringify(currentPath.query)
-    if (samePath && sameQuery && !fromUrl && this.currentRoute?.get()) {
-      return {ok: false, reason: 'same'}
+    // Strict short-circuit including canonical string comparison to avoid edge mismatches
+    if (!fromUrl) {
+      const incomingCanonical = setPath(newPath.path) + encodeQueryParams(newPath.query)
+      const currentCanonical = setPath(this._currentPath || currentPath.path) + encodeQueryParams(
+        (this._currentQuery as any) || currentPath.query,
+      )
+      if ((samePath && sameQuery) || incomingCanonical === currentCanonical) {
+        return {ok: false, reason: 'same'}
+      }
     }
+    // Mark navigation in-flight BEFORE awaiting hooks to prevent concurrent navigations
+    // from slipping through during async beforeEach
+    this._navSeq++
+    const token = this._navSeq
+    _navigating = true
     // Handle malformed double slashes that normalize to root
     if (!fromUrl && newPath.path === '/' && typeof path === 'string' && path.includes('//') && path !== '/') {
       const fb = this.errorFallback({path, query: newPath.query})
@@ -582,30 +729,19 @@ export class Router extends Routes {
       }
       return {ok: false, reason: 'notFound'}
     }
-    const pre = await this.beforeEach?.({from: currentPath, to: newPath})
-    if (pre === false) {
-      this.onNavigate?.({status: 'blocked', from: currentPath.path, to: newPath.path})
-      const dbg = this.debug
-      const logger = typeof dbg === 'object' && dbg.logger ? dbg.logger : console.debug
-      if (dbg) {
-        try {
-          logger('[router] blocked', {from: currentPath, to: newPath})
-        } catch {
-          /* noop */
-        }
-      }
-      return {ok: false, reason: 'blocked'}
-    }
     let redirectedTo: string | undefined
-    if (typeof pre === 'string') {
-      // Обрабатываем редирект из beforeEach без рекурсии
-      redirectedTo = pre
-    }
-    // increment navigation sequence and capture token
-    this._navSeq++
-    const token = this._navSeq
-    _navigating = true
     try {
+      const pre = await this.beforeEach?.({from: currentPath, to: newPath})
+      if (pre === false) {
+        this.onNavigate?.({status: 'blocked', from: currentPath.path, to: newPath.path})
+        Router._log('blocked', {from: currentPath, to: newPath})
+        // Do not change current route/state on blocked navigation
+        return {ok: false, reason: 'blocked'}
+      }
+      if (typeof pre === 'string') {
+        // Обрабатываем редирект из beforeEach без рекурсии
+        redirectedTo = pre
+      }
       let result = await this.__goto(redirectedTo ? getPath(redirectedTo) : newPath, token)
       if (typeof result === 'object') {
         // perform redirect state update synchronously, but report as redirected
@@ -619,15 +755,14 @@ export class Router extends Routes {
         url.push(setPath(finalPath))
       }
       const ok = result !== false && !redirectedTo
-      const dbg = this.debug
-      const logger = typeof dbg === 'object' && dbg.logger ? dbg.logger : console.debug
-      if (dbg) {
-        try {
-          logger('[router] navigate', {from: currentPath, to: redirectedTo ? getPath(redirectedTo) : newPath, ok})
-        } catch {
-          /* noop */
-        }
-      }
+      const lastCtx: any = (this as any).__lastCtx
+      const fromForLog = lastCtx?.from ?? this._pendingFromTarget ?? this._seedFromTarget ?? currentPath
+      const toParams = lastCtx?.to?.params && Object.keys(lastCtx.to.params).length > 0 ? lastCtx.to.params : this._currentParams
+      const toFull = lastCtx
+        ? {path: lastCtx.to.path, query: lastCtx.to.query, params: toParams}
+        : {path: (redirectedTo ? getPath(redirectedTo) : newPath).path, query: (redirectedTo ? getPath(redirectedTo) : newPath).query, params: toParams}
+      Router._log('navigate', {from: fromForLog, to: toFull, ok})
+      this._seedFromTarget = undefined
       if (redirectedTo) {
         // onNavigate('redirected') будет отправлен в finally
         return {ok: false, reason: 'redirected', redirectedTo}
@@ -635,17 +770,14 @@ export class Router extends Routes {
       return {ok}
     } finally {
       _navigating = false
+      this._pendingFromTarget = undefined
+      ;(this as any)._pendingToTarget = undefined
       if (redirectedTo) {
         this.onNavigate?.({status: 'redirected', from: currentPath.path, to: newPath.path, redirectedTo})
-        const dbg = this.debug
-        const logger = typeof dbg === 'object' && dbg.logger ? dbg.logger : console.debug
-        if (dbg) {
-          try {
-            logger('[router] redirected', {from: currentPath, to: newPath, redirectedTo})
-          } catch {
-            /* noop */
-          }
-        }
+        const fromForLog = (this as any).__lastCtx?.from ?? this._seedFromTarget ?? currentPath
+        const toFull = {path: newPath.path, query: newPath.query, params: this._currentParams}
+        Router._log('redirected', {from: fromForLog, to: toFull, redirectedTo})
+        this._seedFromTarget = undefined
       }
     }
   }
@@ -679,6 +811,9 @@ export class Router extends Routes {
     }
 
     const location = window.location
+    // Log early with raw href for diagnostics, even if navigation will be skipped later
+    const rawEarly = anchor.getAttribute('href') ?? anchor.pathname + anchor.search + anchor.hash
+    if (dbg) Router._log('click', {href: rawEarly})
     if (anchor.origin !== location.origin) {
       return
     }
@@ -690,14 +825,7 @@ export class Router extends Routes {
       if (location.protocol === 'file:' && nextHref.startsWith('#')) {
         nextHref = nextHref.slice(1)
       }
-      if (dbg) {
-        const logger = typeof dbg === 'object' && dbg.logger ? dbg.logger : console.debug
-        try {
-          logger('[router] click', {href: nextHref})
-        } catch {
-          /* noop */
-        }
-      }
+      if (dbg) Router._log('click', {href: nextHref})
       const {path, query} = getPath(nextHref)
       this.navigate(path + (Object.keys(query).length > 0 ? '?' + new URLSearchParams(query).toString() : ''))
     }

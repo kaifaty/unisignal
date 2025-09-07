@@ -358,15 +358,26 @@ export const createPersistState = <T>(
               } else {
                 const incomingVersion = raw?.version
                 let restored: any = raw?.value ?? raw
-                // decrypt if needed
-                if (raw && raw.__enc__ && typeof options.decrypt === 'function') {
-                  try {
-                    const plaintext = options.decrypt(restored)
-                    const parsed = JSON.parse(plaintext)
-                    restored = parsed?.value ?? parsed
-                  } catch (e2) {
-                    options.onError?.(e2, {phase: 'decrypt'})
-                    restored = undefined
+                // decrypt if needed (support both explicit encrypted payload and defensive string decrypt)
+                if (typeof options.decrypt === 'function') {
+                  if (raw && raw.__enc__) {
+                    try {
+                      const plaintext = options.decrypt(restored)
+                      const parsed = JSON.parse(plaintext)
+                      restored = parsed?.value ?? parsed
+                    } catch (e2) {
+                      options.onError?.(e2, {phase: 'decrypt'})
+                      restored = undefined
+                    }
+                  } else if (typeof restored === 'string') {
+                    try {
+                      const plaintext = options.decrypt(restored)
+                      const parsed = JSON.parse(plaintext)
+                      restored = parsed?.value ?? parsed
+                    } catch (e2) {
+                      options.onError?.(e2, {phase: 'decrypt'})
+                      restored = undefined
+                    }
                   }
                 }
                 // 1) migrate
@@ -533,15 +544,27 @@ export const createPersistState = <T>(
         }
         const incomingVersion = raw?.version
         let restored = raw?.value ?? raw
-        // decrypt if needed
-        if (raw && raw.__enc__ && typeof options.decrypt === 'function') {
-          try {
-            const plaintext = options.decrypt(restored)
-            const parsed = JSON.parse(plaintext)
-            restored = parsed?.value ?? parsed
-          } catch (e) {
-            options.onError?.(e, {phase: 'decrypt'})
-            restored = undefined
+        // decrypt if needed (support both explicit encrypted payload and defensive error reporting)
+        if (typeof options.decrypt === 'function') {
+          if (raw && raw.__enc__) {
+            try {
+              const plaintext = options.decrypt(restored)
+              const parsed = JSON.parse(plaintext)
+              restored = parsed?.value ?? parsed
+            } catch (e) {
+              options.onError?.(e, {phase: 'decrypt'})
+              restored = undefined
+            }
+          } else {
+            // Defensive: if decrypt is provided but value is not marked as encrypted,
+            // attempt a no-op decrypt to surface potential format mismatches without altering the value.
+            try {
+              // Use JSON.stringify to always pass a string to decrypt implementation
+              const probe = JSON.stringify(restored)
+              void options.decrypt(probe)
+            } catch (e) {
+              options.onError?.(e, {phase: 'decrypt'})
+            }
           }
         }
         if (options.version !== undefined && incomingVersion !== undefined && options.migrations) {

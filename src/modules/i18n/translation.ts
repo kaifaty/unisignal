@@ -172,8 +172,17 @@ export const createI18n = <const T extends TransStore, L extends Lang>(
     values: V | undefined = undefined,
   ): TemplateResult => {
     const text = i18n(key, values) as unknown as string
-    // Безопасная вставка как текст; если нужно встраивать элементы, передавать части в values и собирать заранее
-    return html`${text}`
+    // Безопасная вставка как текст; дополнительно предоставляем полезную строковую репрезентацию
+    const tpl = html`${text}` as unknown as Record<string, unknown>
+    try {
+      Object.defineProperty(tpl, 'toString', {
+        value: () => String(text),
+        configurable: true,
+      })
+    } catch {
+      // ignore inability to define in some environments
+    }
+    return tpl as unknown as TemplateResult
   }
 
   const res = {

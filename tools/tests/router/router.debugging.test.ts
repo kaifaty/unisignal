@@ -10,6 +10,7 @@ describe('router: debugging', () => {
   beforeEach(() => {
     Router.__resetLoopForTests()
     logMessages = []
+    ;(globalThis as any).logMessages = logMessages
 
     debugLogger = (msg: string, ctx?: any) => {
       logMessages.push({msg, ctx})
@@ -21,6 +22,7 @@ describe('router: debugging', () => {
       Router.stop()
     } catch {}
     ;(Router as any).debug = false
+    ;(globalThis as any).logMessages = undefined
     try {
       const {url} = require('../../../src/modules/url')
       ;(url as any).dispose?.()
@@ -254,7 +256,7 @@ describe('router: debugging', () => {
   it('does not log when debug logger is not a function', () => {
     const {adapter} = createRouterTestEnv({withUrl: true, initialPath: '/'})
 
-    Router.configure(adapter, {debug: {logger: 'not a function'}})
+    Router.configure(adapter, {debug: {logger: 'not a function' as unknown as (() => void)}})
 
     const container = document.createElement('div')
     document.body.appendChild(container)

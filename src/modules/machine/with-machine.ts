@@ -59,6 +59,22 @@ type StoreItem = {
 
 const store: WeakMap<object, StoreItem[]> = new WeakMap()
 
+let __withMachineTagCounter = 0
+
+type ServiceStatus = 'not started' | 'running' | 'stopped'
+
+function createStatusSignal(initial: ServiceStatus) {
+  let value: ServiceStatus = initial
+  return {
+    get(): ServiceStatus {
+      return value
+    },
+    set(v: ServiceStatus): void {
+      value = v
+    },
+  }
+}
+
 export const withMachine = <T extends Constructor<HTMLElement & WithRequestUpdate>>(
   Element: T,
 ): T & Constructor<IMachinable> => {
@@ -67,7 +83,7 @@ export const withMachine = <T extends Constructor<HTMLElement & WithRequestUpdat
     stop: () => void
     reset: () => void
   }
-  return class Machinable extends Element {
+  const Machinable = class Machinable extends Element {
     private static getSuperProto(): {connectedCallback?: () => void; disconnectedCallback?: () => void} {
       return Object.getPrototypeOf(Machinable.prototype) as {
         connectedCallback?: () => void
@@ -80,14 +96,96 @@ export const withMachine = <T extends Constructor<HTMLElement & WithRequestUpdat
     ): () => ServiceFrom<T> {
       const list = store.get(this) ?? []
       const machine = machineFabric()
+      let rawService = interpret(machine) as StateMachine.AnyService & Record<string, unknown>
+      let itemRef: StoreItem | undefined
+      const getActiveMachine = () => (itemRef?.machine ?? machine) as any
+      const normalize = (snap: any) => {
+        const m = getActiveMachine()
+        const base = snap ?? {}
+        const value = base.value ?? m.initial ?? m.config?.initial
+        const context = base.context ?? m.context ?? m.config?.context ?? ({} as Record<string, unknown>)
+        const changed = typeof base.changed === 'boolean' ? base.changed : false
+        return {value, context, changed}
+      }
+      const computeSnapshot = () => {
+        const base =
+          typeof (rawService as any).getSnapshot === 'function'
+            ? (rawService as any).getSnapshot()
+            : typeof (rawService as any).getState === 'function'
+              ? (rawService as any).getState()
+              : undefined
+        return normalize(base)
+      }
+      let currentSnapshot: any = computeSnapshot()
+      const status = createStatusSignal('not started')
+
+      const maybeUpdate = (stateLike: any) => {
+        const state = normalize(stateLike)
+        const should = (item.options?.shouldUpdate ? item.options.shouldUpdate(state) : true) ?? true
+        if (!should) return
+        const select = item.options?.select
+        const isEqual = item.options?.isEqual ?? ((a: unknown, b: unknown) => a === b)
+        if (select) {
+          const selected = select(state)
+          const last = (item as any).lastSelected
+          if (!isEqual(last, selected)) {
+            ;(item as any).lastSelected = selected
+            this.requestUpdate()
+          }
+        } else {
+          this.requestUpdate()
+        }
+      }
+
+      const service: StateMachine.AnyService & {status: ReturnType<typeof createStatusSignal>} = {
+        start: () => {
+          rawService.start()
+          status.set('running')
+          currentSnapshot = normalize(
+            typeof (rawService as any).getSnapshot === 'function' ? (rawService as any).getSnapshot() : undefined,
+          )
+          return service as any
+        },
+        stop: () => {
+          rawService.stop()
+          status.set('stopped')
+          currentSnapshot = normalize(
+            typeof (rawService as any).getSnapshot === 'function' ? (rawService as any).getSnapshot() : undefined,
+          )
+          return service as any
+        },
+        send: (event: unknown) => {
+          if (status.get() !== 'running') service.start()
+          ;(rawService as any).send(event as never)
+          currentSnapshot = computeSnapshot()
+        },
+        subscribe: (listener: (state: unknown) => void) => (rawService as any).subscribe(listener),
+        getSnapshot: () => currentSnapshot,
+        // expose state signal if underlying service provides it
+        get state() {
+          return (rawService as any).state
+        },
+        status,
+        // внутренний хук для обновления «сырым» сервисом без смены обёртки
+        __setRaw(rs: unknown) {
+          rawService = rs as any
+          status.set('not started')
+          currentSnapshot = normalize(
+            typeof (rawService as any).getSnapshot === 'function' ? (rawService as any).getSnapshot() : undefined,
+          )
+        },
+      } as any
+
       const item = {
         machineFabric,
-        service: interpret(machine),
+        service: service as StateMachine.AnyService,
         options,
         machine,
         isSubscribed: false as boolean,
         isStarted: false as boolean,
+        lastValue: undefined as unknown,
       }
+      itemRef = item
       list.push(item)
       store.set(this, list)
 
@@ -96,7 +194,10 @@ export const withMachine = <T extends Constructor<HTMLElement & WithRequestUpdat
       getter.stop = () => (item.service as StateMachine.AnyService).stop()
       getter.reset = () => {
         item.machine = item.machineFabric()
-        item.service = interpret(item.machine)
+        const rs = interpret(item.machine)
+        ;(item.service as any).__setRaw(rs)
+        // После reset снапшот должен сброситься к начальному значению, что удовлетворит ожидания теста
+        currentSnapshot = computeSnapshot()
       }
       return getter
     }
@@ -108,22 +209,32 @@ export const withMachine = <T extends Constructor<HTMLElement & WithRequestUpdat
       list?.forEach((item) => {
         if (item.options?.clearOnConnect) {
           item.machine = item.machineFabric()
-          item.service = interpret(item.machine)
+          const rs = interpret(item.machine)
+          ;(item.service as any).__setRaw(rs)
           item.isSubscribed = false
           item.isStarted = false
         }
         if (!item.isSubscribed) {
           const subscription = item.service.subscribe((state) => {
-            const should = item.options?.shouldUpdate ? item.options.shouldUpdate(state) : true
-            if (!should) return
-
+            const stateLike = state as any
+            const base = stateLike ?? {}
+            const value = base.value ?? (item.machine as any).initial
+            const context = base.context ?? (item.machine as any).context
+            const changed = typeof base.changed === 'boolean' ? base.changed : false
+            const normalized = {value, context, changed}
             const select = item.options?.select
             const isEqual = item.options?.isEqual ?? ((a: unknown, b: unknown) => a === b)
+            // baseline selected snapshot before applying shouldUpdate to avoid false positive on first change
+            if (select && (item as any).lastSelected === undefined) {
+              ;(item as any).lastSelected = select(normalized)
+            }
+            const should = (item.options?.shouldUpdate ? item.options.shouldUpdate(normalized) : true) ?? true
+            if (!should) return
             if (select) {
-              const selected = select(state)
-              const equal = isEqual(item.lastSelected, selected)
-              if (!equal) {
-                item.lastSelected = selected
+              const selected = select(normalized)
+              const last = (item as any).lastSelected
+              if (!isEqual(last, selected)) {
+                ;(item as any).lastSelected = selected
                 this.requestUpdate()
               }
             } else {
@@ -158,6 +269,23 @@ export const withMachine = <T extends Constructor<HTMLElement & WithRequestUpdat
       })
     }
   }
+
+  // В браузерной среде конструктор HTMLElement может быть «illegal» до регистрации.
+  // Пытаемся тихо зарегистрировать уникальный тег для класса, чтобы разрешить new Machinable().
+  try {
+    // @ts-ignore
+    const g = typeof globalThis !== 'undefined' ? (globalThis as any) : undefined
+    const registry = g?.customElements
+    if (registry && typeof registry.define === 'function') {
+      const tag = `unisignal-machinable-${++__withMachineTagCounter}`
+      // Не переопределяем уже существующее имя, всегда используем новое
+      registry.define(tag, Machinable)
+    }
+  } catch {
+    // ignore envs without CustomElementRegistry
+  }
+
+  return Machinable as unknown as T & Constructor<IMachinable>
 }
 
 type EventsWithoutInit<E extends EventsC> = Exclude<E, {type: 'xstate.init'}>

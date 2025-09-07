@@ -148,14 +148,11 @@ describe('router: navigation', () => {
   })
 
   it('handles file protocol paths', async () => {
-    const {adapter} = createRouterTestEnv({withUrl: true, initialPath: '/'})
+    const {adapter, fakeLocation} = createRouterTestEnv({withUrl: true, initialPath: '/'})
 
-    // Mock file protocol
-    const originalWindow = globalThis.window
-    ;(globalThis as any).window = {
-      ...originalWindow,
-      location: {protocol: 'file:', hash: '#/test'},
-    }
+    // Настраиваем протокол и hash через фикстурный location
+    fakeLocation.protocol = 'file:'
+    fakeLocation.hash = '#/test'
 
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -172,9 +169,6 @@ describe('router: navigation', () => {
 
     const result = await Router.navigate('#/test')
     expect(result.ok).to.equal(true)
-
-    // Restore
-    ;(globalThis as any).window = originalWindow
 
     cleanupRouterContainer(container)
   })
