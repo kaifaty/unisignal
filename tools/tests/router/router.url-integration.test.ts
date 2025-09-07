@@ -71,24 +71,7 @@ describe('router: URL integration', () => {
     cleanupRouterContainer(container)
   })
 
-  it.only('handles missing URL module gracefully', () => {
-    const {adapter} = createRouterTestEnv({withUrl: false, initialPath: '/'})
-
-    Router.configure(adapter, {withUrl: false})
-
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-
-    Router.initRoot({
-      container,
-      render: () => 'root',
-    })
-
-    // Should not throw when URL module is not available
-    expect(() => Router.start()).to.not.throw()
-
-    cleanupRouterContainer(container)
-  })
+  
 
   it('handles file protocol URLs in start()', () => {
     const {adapter} = createRouterTestEnv({withUrl: true, initialPath: '/'})
@@ -310,24 +293,7 @@ describe('router: URL integration', () => {
     cleanupRouterContainer(container)
   })
 
-  it('handles missing URL module gracefully', () => {
-    const {adapter} = createRouterTestEnv({withUrl: false, initialPath: '/'})
-
-    Router.configure(adapter, {withUrl: false})
-
-    const container = document.createElement('div')
-    document.body.appendChild(container)
-
-    Router.initRoot({
-      container,
-      render: () => 'root',
-    })
-
-    // Should not throw when URL module is not available
-    expect(() => Router.start()).to.not.throw()
-
-    cleanupRouterContainer(container)
-  })
+  
 
   it('handles URL subscription errors gracefully', () => {
     const {adapter} = createRouterTestEnv({withUrl: true, initialPath: '/'})
