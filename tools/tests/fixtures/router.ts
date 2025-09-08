@@ -35,6 +35,9 @@ export function createRouterTestEnv(options?: {
 }): RouterTestEnv {
   const adapter = createTestSignalAdapter()
   const historyRecords: Array<[string, string]> = []
+  // Примитивный стек history для эмуляции back()/go()
+  const historyStack: string[] = []
+  let historyIndex = -1
 
   Router.configure(adapter, {
     withUrl: options?.withUrl ?? true,
@@ -49,18 +52,58 @@ export function createRouterTestEnv(options?: {
     origin: 'http://test',
     protocol: 'http:',
   }
+  // Инициализируем стек текущим путём
+  historyStack.push(fakeLocation.pathname)
+  historyIndex = 0
 
   const fakeHistory: FakeHistory = {
     pushState: (_state: unknown, _title: string, url: string) => {
       historyRecords.push(['push', url])
+      // Отбрасываем forward-ветку при новом push
+      if (historyIndex < historyStack.length - 1) {
+        historyStack.splice(historyIndex + 1)
+      }
+      historyStack.push(String(url))
+      historyIndex = historyStack.length - 1
       fakeLocation.pathname = String(url).split('?')[0]
     },
     replaceState: (_state: unknown, _title: string, url: string) => {
       historyRecords.push(['replace', url])
+      if (historyIndex >= 0 && historyIndex < historyStack.length) {
+        historyStack[historyIndex] = String(url)
+      } else {
+        historyStack.push(String(url))
+        historyIndex = historyStack.length - 1
+      }
       fakeLocation.pathname = String(url).split('?')[0]
     },
-    go: () => {},
-    back: () => {},
+    go: (delta: number = 0) => {
+      const win: any = (globalThis as any).window
+      if (typeof delta !== 'number' || delta === 0) return
+      const nextIndex = Math.max(0, Math.min(historyStack.length - 1, historyIndex + delta))
+      if (nextIndex === historyIndex) return
+      historyIndex = nextIndex
+      const nextUrl = historyStack[historyIndex]
+      fakeLocation.pathname = String(nextUrl).split('?')[0]
+      try {
+        win?.dispatchEvent?.(new (win as any).PopStateEvent('popstate', {state: null}))
+      } catch {
+        // fallback без состояния
+        win?.dispatchEvent?.(new (win as any).Event('popstate'))
+      }
+    },
+    back: () => {
+      const win: any = (globalThis as any).window
+      if (historyIndex <= 0) return
+      historyIndex -= 1
+      const nextUrl = historyStack[historyIndex]
+      fakeLocation.pathname = String(nextUrl).split('?')[0]
+      try {
+        win?.dispatchEvent?.(new (win as any).PopStateEvent('popstate', {state: null}))
+      } catch {
+        win?.dispatchEvent?.(new (win as any).Event('popstate'))
+      }
+    },
   }
 
   // Настройка фейкового environment
