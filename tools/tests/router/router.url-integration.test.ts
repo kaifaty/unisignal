@@ -1,55 +1,24 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {expect} from '@esm-bundle/chai'
 import {Router} from '../../../src/modules/router/router'
-import {configure as configureUrl, url} from '../../../src/modules/url'
-import {createRouterTestEnv, cleanupRouterContainer} from '../fixtures/router'
-import type {SignalAdapter} from '../../../src/modules/adapter/types'
+import {url} from '../../../src/modules/url'
+import {createRouterTestEnv, createRouterContainer, cleanupRouterContainer} from '../fixtures/router'
+import {waitForCondition} from '../fixtures/common'
 
 describe('router: URL integration', () => {
   beforeEach(() => {
     Router.__resetLoopForTests()
   })
 
-  afterEach(() => {
-    // Останавливаем Router, снимаем подписки и обработчики
-    try {
-      Router.stop()
-    } catch {}
-    // Clean up URL subscriptions (на случай замоканных)
-    try {
-      if ((Router as any).unsub) {
-        ;(Router as any).unsub()
-        ;(Router as any).unsub = undefined
-      }
-    } catch {}
-    try {
-      // Сбрасываем env и состояние url между тестами
-      ;(url as any).__resetForTests?.()
-      ;(url as any).constructor.configureEnv({
-        get window() {
-          return (globalThis as any).window
-        },
-        get location() {
-          return ((globalThis as any).window as any)?.location
-        },
-        get history() {
-          return ((globalThis as any).window as any)?.history
-        },
-      })
-    } catch {}
-  })
+  // Очистка выполняется глобально в tools/tests/setup.ts
 
-  it('starts router and subscribes to URL changes', () => {
+  it('starts router and subscribes to URL changes', async () => {
     const {adapter} = createRouterTestEnv({
       withUrl: true,
       initialPath: '/',
     })
 
-    Router.configure(adapter, {withUrl: true})
-    configureUrl(adapter)
-
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     const root = Router.initRoot({
       container,
@@ -65,19 +34,19 @@ describe('router: URL integration', () => {
 
     // simulate url change via public API
     url.push('/test')
+    await new Promise((r) => setTimeout(r, 0))
 
     expect((Router as any).currentRoute.get()?.name).to.equal('test')
 
     cleanupRouterContainer(container)
   })
 
-  it.only('handles missing URL module gracefully', () => {
+  it('handles missing URL module gracefully', () => {
     const {adapter} = createRouterTestEnv({withUrl: false, initialPath: '/'})
 
     Router.configure(adapter, {withUrl: false})
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     Router.initRoot({
       container,
@@ -95,8 +64,7 @@ describe('router: URL integration', () => {
 
     Router.configure(adapter, {withUrl: true})
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     const root = Router.initRoot({
       container,
@@ -142,10 +110,8 @@ describe('router: URL integration', () => {
     })
 
     Router.configure(adapter, {withUrl: true})
-    configureUrl(adapter)
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     const root = Router.initRoot({
       container,
@@ -176,10 +142,8 @@ describe('router: URL integration', () => {
     const {adapter} = createRouterTestEnv({withUrl: true, initialPath: '/'})
 
     Router.configure(adapter, {withUrl: true})
-    configureUrl(adapter)
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     const root = Router.initRoot({
       container,
@@ -213,10 +177,8 @@ describe('router: URL integration', () => {
     })
 
     Router.configure(adapter, {withUrl: true})
-    configureUrl(adapter)
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     const root = Router.initRoot({
       container,
@@ -245,10 +207,8 @@ describe('router: URL integration', () => {
     })
 
     Router.configure(adapter, {withUrl: true})
-    configureUrl(adapter)
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     const root = Router.initRoot({
       container,
@@ -277,10 +237,8 @@ describe('router: URL integration', () => {
     })
 
     Router.configure(adapter, {withUrl: true})
-    configureUrl(adapter)
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     const root = Router.initRoot({
       container,
@@ -297,12 +255,16 @@ describe('router: URL integration', () => {
       render: () => 'page2',
     })
 
+    // Подписываемся на изменения URL, чтобы back() корректно отражался в Router
+    Router.start()
+
     // Navigate to create history
     await Router.navigate('/page1')
     await Router.navigate('/page2')
 
     // Go back
     await Router.back()
+    await waitForCondition(() => (Router as any).currentRoute.get()?.name === 'page1', 500, 10)
 
     // Should be back to page1
     expect((Router as any).currentRoute.get()?.name).to.equal('page1')
@@ -315,8 +277,7 @@ describe('router: URL integration', () => {
 
     Router.configure(adapter, {withUrl: false})
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     Router.initRoot({
       container,
@@ -353,8 +314,7 @@ describe('router: URL integration', () => {
     ;(url as any).pathSignal = mockUrl.pathSignal
     ;(url as any).hashSignal = mockUrl.hashSignal
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     Router.initRoot({
       container,
@@ -375,10 +335,8 @@ describe('router: URL integration', () => {
     const {adapter} = createRouterTestEnv({withUrl: true, initialPath: '/'})
 
     Router.configure(adapter, {withUrl: true})
-    configureUrl(adapter)
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     const root = Router.initRoot({
       container,
@@ -414,10 +372,8 @@ describe('router: URL integration', () => {
     })
 
     Router.configure(adapter, {withUrl: true})
-    configureUrl(adapter)
 
-    const container = document.createElement('div')
-    document.body.appendChild(container)
+    const container = createRouterContainer()
 
     const root = Router.initRoot({
       container,
