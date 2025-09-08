@@ -44,8 +44,18 @@ type GotoParams = {
 
 let _navigating = false
 
+/**
+ * Нормализует обратные и двойные слэши к единственному прямому `/`.
+ */
 export const normalizeSlashes = (p: string) => p.replace(/\\+/g, '/').replace(/\/+/g, '/')
+/**
+ * Убирает завершающий слэш, кроме корневого пути `/`.
+ */
 export const normalizeTrailing = (p: string) => (p !== '/' && p.endsWith('/') ? p.slice(0, -1) : p)
+/**
+ * Разбирает входной путь на `path` и `query` с учетом `basePrefix`.
+ * Не удаляет `#` для file:// протокола, для остальных — отбрасывает hash-часть.
+ */
 export const getPath = (_path: string) => {
   // For non-hash input: strip hash for non-file protocols; keep hashes otherwise
   if (!_path.startsWith('#')) {
@@ -79,6 +89,9 @@ export const getPath = (_path: string) => {
 
   return {path, query: queryParams}
 }
+/**
+ * Формирует канонический путь с учетом `basePrefix` и SSR/file:// окружения.
+ */
 export const setPath = (path: string) => {
   if (typeof window !== 'undefined' && window.location?.protocol === 'file:') {
     return path.startsWith('#') ? path : '#' + path
@@ -134,6 +147,9 @@ export class Routes {
       this.history.splice(0, this.history.length - this.maxHistoryLength)
     }
   }
+  /**
+   * Конфигурация адаптера сигналов и опций роутера. Должна быть вызвана до использования.
+   */
   static configure(
     adapter: SignalAdapter,
     options: {
@@ -209,6 +225,10 @@ export class Routes {
       })
     return pathArray
   }
+  /**
+   * Инициализирует корневой маршрут и (опционально) контейнер рендера.
+   * `entry` не вызывается на инициализации.
+   */
   static initRoot({injectSelector, container, render, entry}: InitParams) {
     // Log init for debugging when enabled (ctx undefined by design)
     Router._log('init')
@@ -264,6 +284,9 @@ export class Routes {
     this.rootNode = new this(this.hiddenSymbol, '/', render, entry)
     return this.rootNode
   }
+  /**
+   * Внутренняя функция перехода к маршруту, вызывает entry-гварды по цепочке.
+   */
   static async __goto({path, query}: GotoParams, token?: number): Promise<boolean | {redirectTo: string}> {
     this._ensureCurrentRoute()
     try {
@@ -642,6 +665,9 @@ export class Router extends Routes {
     }
   }
 
+  /**
+   * Старт прослушивания URL (hash или path) и кликов по ссылкам `<a>` в браузере.
+   */
   static start(): void {
     Router._log('start')
     if (typeof window === 'undefined') return
@@ -667,6 +693,9 @@ export class Router extends Routes {
     }
     window.addEventListener('click', this._onClick)
   }
+  /**
+   * Остановка прослушивания URL и очистка хуков навигации.
+   */
   static stop() {
     if (typeof window === 'undefined') return
     if (this.debug) Router._log('stop')
@@ -677,9 +706,15 @@ export class Router extends Routes {
     this.afterEach = undefined
     this.onNavigate = undefined
   }
+  /**
+   * Шаг назад по истории.
+   */
   static async back() {
     url.back()
   }
+  /**
+   * Переход без добавления в историю (replaceState) с синхронизацией URL.
+   */
   static async replace(path: string) {
     const result = await this.navigate(path)
     if (result.ok) {
@@ -687,6 +722,9 @@ export class Router extends Routes {
     }
     return result.ok
   }
+  /**
+   * Верхнеуровневый API навигации: применяет beforeEach/afterEach, редиректы и обновление URL.
+   */
   static async navigate(path: string, fromUrl = false): Promise<NavigateResult> {
     // Allow concurrent navigations to different targets; block duplicates to same target
     if (_navigating) {
@@ -805,11 +843,17 @@ export class Router extends Routes {
       }
     }
   }
+  /**
+   * Сжатая обертка над navigate, возвращающая только `ok`.
+   */
   static async goto(path: string, fromUrl = false): Promise<boolean> {
     const result = await this.navigate(path, fromUrl)
     return result.ok
   }
 
+  /**
+   * Обработчик клика по ссылкам `<a>`, предотвращает дефолтную навигацию для SPA.
+   */
   private static _onClick = (e: MouseEvent) => {
     const dbg = this.debug
     const isNonNavigationClick = e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey

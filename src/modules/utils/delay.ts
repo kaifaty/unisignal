@@ -1,1 +1,8 @@
-export const delay = (t: number) => new Promise((r) => setTimeout(r, t))
+/**
+ * Асинхронная задержка на указанное количество миллисекунд.
+ * Не изменяет контекст выполнения, возвращает `Promise<void>`.
+ *
+ * @param t Количество миллисекунд ожидания (>= 0)
+ * @returns Промис, резолвящийся по таймеру
+ */
+export const delay = (t: number) => new Promise<void>((r) => setTimeout(r, t))
